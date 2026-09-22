@@ -1,0 +1,6 @@
+---
+- name: Run ServerTools OS Performance Tuning
+  hosts: all
+  become: yes
+  roles:
+    - optimization

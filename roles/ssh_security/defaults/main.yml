@@ -1,0 +1,14 @@
+---
+# SSH security defaults
+
+ssh_security_root_user: "root"
+ssh_security_ubuntu_user: "ubuntu"
+
+ssh_security_public_key_path: "{{ vault_ssh_public_key_path }}"
+
+ssh_security_config_path: "/etc/ssh/sshd_config.d/00-security-hardening.conf"
+
+ssh_security_permit_root_login: "prohibit-password"
+ssh_security_password_authentication: "no"
+ssh_security_challenge_response_authentication: "no"
+ssh_security_pubkey_authentication: "yes"

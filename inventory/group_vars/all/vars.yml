@@ -1,0 +1,12 @@
+---
+# General configuration
+domain_suffix: "{{ vault_domain_suffix }}"
+server_dns_provider: "cloudflare"
+
+# Default SSH connection profile
+ansible_user: root
+ansible_become: false
+
+# Secrets loaded from Ansible Vault
+cf_api_token: "{{ vault_cf_api_token }}"
+common_api_key: "{{ vault_common_api_key }}"

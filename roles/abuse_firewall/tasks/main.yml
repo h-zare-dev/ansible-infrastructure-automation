@@ -1,0 +1,31 @@
+---
+- name: Install iptables-persistent
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+
+- name: Block specific malicious domains in local hosts file
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "127.0.0.1 {{ item }}"
+    state: present
+  loop:
+    - appclick.co
+    - pushnotificationws.com
+
+- name: Deploy Abuse-Defender update script via Jinja2 template
+  ansible.builtin.template:
+    src: abuse-update.sh.j2
+    dest: /root/abuse-defender-update.sh
+    mode: '0755'
+    owner: root
+    group: root
+  notify: Run initial firewall update
+
+- name: Schedule cron job for daily firewall auto-update
+  ansible.builtin.cron:
+    name: "Abuse-Defender Auto Update"
+    minute: "0"
+    hour: "0"
+    job: "/root/abuse-defender-update.sh"
+    state: present

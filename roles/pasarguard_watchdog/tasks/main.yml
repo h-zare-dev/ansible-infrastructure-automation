@@ -1,0 +1,15 @@
+---
+- name: Deploy PasarGuard memory watchdog script
+  ansible.builtin.template:
+    src: pg-watchdog.sh.j2
+    dest: "{{ pasarguard_watchdog_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Schedule PasarGuard memory watchdog
+  ansible.builtin.cron:
+    name: "Check RAM and restart pg-node if high"
+    minute: "{{ pasarguard_watchdog_cron_minute }}"
+    job: "{{ pasarguard_watchdog_script_path }}"
+    state: present

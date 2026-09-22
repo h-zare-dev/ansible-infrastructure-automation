@@ -1,0 +1,11 @@
+---
+- name: Bootstrap SSH key authentication
+  hosts: "{{ bootstrap_host }}"
+  become: "{{ ansible_user != 'root' }}"
+
+  vars:
+    ansible_password: "{{ vault_ansible_password }}"
+    ansible_become_pass: "{{ vault_ansible_become_pass }}"
+
+  roles:
+    - ssh_security

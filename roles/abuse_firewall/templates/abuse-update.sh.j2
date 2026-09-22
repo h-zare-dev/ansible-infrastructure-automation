@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+MANAGED_CHAIN="{{ abuse_firewall_managed_chain }}"
+UDP_CHAIN="{{ abuse_firewall_udp_chain }}"
+IP_LIST_URL="{{ abuse_firewall_ip_list_url }}"
+
+TMP_IP_LIST="$(mktemp)"
+TMP_RULES="$(mktemp)"
+
+cleanup() {
+    rm -f "$TMP_IP_LIST" "$TMP_RULES"
+}
+trap cleanup EXIT
+
+echo "[Abuse-Defender] Downloading IP list..."
+
+if ! curl \
+    --fail \
+    --silent \
+    --show-error \
+    --location \
+    --connect-timeout 10 \
+    --max-time 30 \
+    "$IP_LIST_URL" \
+    -o "$TMP_IP_LIST"; then
+    echo "[Abuse-Defender] ERROR: Could not download IP list." >&2
+    exit 1
+fi
+
+if [ ! -s "$TMP_IP_LIST" ]; then
+    echo "[Abuse-Defender] ERROR: Downloaded IP list is empty." >&2
+    exit 1
+fi
+
+VALID_IP_COUNT="$(
+    grep -Ev '^[[:space:]]*(#|$)' "$TMP_IP_LIST" |
+    wc -l
+)"
+
+if [ "$VALID_IP_COUNT" -lt 1 ]; then
+    echo "[Abuse-Defender] ERROR: No usable entries found in IP list." >&2
+    exit 1
+fi
+
+echo "[Abuse-Defender] IP list contains $VALID_IP_COUNT entries."
+
+# Docker must already have created DOCKER-USER.
+if ! iptables -nL DOCKER-USER >/dev/null 2>&1; then
+    echo "[Abuse-Defender] ERROR: DOCKER-USER chain does not exist." >&2
+    exit 1
+fi
+
+#
+# Remove every jump owned by this firewall before rebuilding.
+#
+
+while iptables -C DOCKER-USER -p udp -j "$UDP_CHAIN" 2>/dev/null; do
+    iptables -D DOCKER-USER -p udp -j "$UDP_CHAIN"
+done
+
+while iptables -C DOCKER-USER -j "$MANAGED_CHAIN" 2>/dev/null; do
+    iptables -D DOCKER-USER -j "$MANAGED_CHAIN"
+done
+
+while iptables -C OUTPUT -j "$MANAGED_CHAIN" 2>/dev/null; do
+    iptables -D OUTPUT -j "$MANAGED_CHAIN"
+done
+
+#
+# Rebuild UDP protection chain.
+#
+
+iptables -N "$UDP_CHAIN" 2>/dev/null || true
+iptables -F "$UDP_CHAIN"
+
+{% for ip in abuse_firewall_dns_ips %}
+iptables -A "$UDP_CHAIN" -s "{{ ip }}" -j ACCEPT
+iptables -A "$UDP_CHAIN" -d "{{ ip }}" -j ACCEPT
+{% endfor %}
+
+{% for port in abuse_firewall_udp_allowed_ports %}
+iptables -A "$UDP_CHAIN" -p udp --dport "{{ port }}" -j ACCEPT
+{% endfor %}
+
+iptables -A "$UDP_CHAIN" -j DROP
+
+#
+# Rebuild Abuse-Defender chain.
+#
+
+iptables -N "$MANAGED_CHAIN" 2>/dev/null || true
+iptables -F "$MANAGED_CHAIN"
+
+while IFS= read -r IP; do
+    IP="${IP%%#*}"
+    IP="$(echo "$IP" | xargs)"
+
+    [ -z "$IP" ] && continue
+
+    if iptables -A "$MANAGED_CHAIN" -s "$IP" -j DROP 2>/dev/null; then
+        iptables -A "$MANAGED_CHAIN" -d "$IP" -j DROP
+    else
+        echo "[Abuse-Defender] WARNING: Ignoring invalid entry: $IP" >&2
+    fi
+done < "$TMP_IP_LIST"
+
+{% for ip in abuse_firewall_custom_bogons %}
+iptables -A "$MANAGED_CHAIN" -s "{{ ip }}" -j DROP
+iptables -A "$MANAGED_CHAIN" -d "{{ ip }}" -j DROP
+{% endfor %}
+
+#
+# Attach managed chains in deterministic order.
+#
+
+iptables -I DOCKER-USER 1 -p udp -j "$UDP_CHAIN"
+iptables -I DOCKER-USER 2 -j "$MANAGED_CHAIN"
+iptables -I OUTPUT 1 -j "$MANAGED_CHAIN"
+
+#
+# Validate important rules before persistence.
+#
+
+iptables -C DOCKER-USER -p udp -j "$UDP_CHAIN"
+iptables -C DOCKER-USER -j "$MANAGED_CHAIN"
+iptables -C OUTPUT -j "$MANAGED_CHAIN"
+
+iptables -S > /dev/null
+
+#
+# Persist atomically.
+#
+
+iptables-save > "$TMP_RULES"
+
+if [ ! -s "$TMP_RULES" ]; then
+    echo "[Abuse-Defender] ERROR: iptables-save produced an empty ruleset." >&2
+    exit 1
+fi
+
+install \
+    -o root \
+    -g root \
+    -m 0600 \
+    "$TMP_RULES" \
+    /etc/iptables/rules.v4
+
+echo "[Abuse-Defender] Firewall update completed successfully."

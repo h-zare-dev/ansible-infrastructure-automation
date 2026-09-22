@@ -1,0 +1,7 @@
+---
+- name: Secure SSH access
+  hosts: all
+  become: true
+
+  roles:
+    - ssh_security

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+# Managed by Ansible - do not edit manually.
+
+set -u
+
+exec 9>"{{ pasarguard_watchdog_lock_path }}"
+
+if ! flock -n 9; then
+    exit 0
+fi
+
+MEM_USED="$(free | awk '/^Mem:/ {print int($3/$2 * 100)}')"
+
+if [ "$MEM_USED" -ge {{ pasarguard_watchdog_memory_threshold }} ]; then
+    echo "$(date --iso-8601=seconds): RAM usage hit ${MEM_USED}%. Triggering pg-node restart..." \
+        >> "{{ pasarguard_watchdog_log_path }}"
+
+    if timeout {{ pasarguard_watchdog_restart_timeout }} \
+        "{{ pasarguard_watchdog_pg_node_path }}" restart --no-logs \
+        >> "{{ pasarguard_watchdog_log_path }}" 2>&1; then
+
+        echo "$(date --iso-8601=seconds): pg-node restart completed successfully." \
+            >> "{{ pasarguard_watchdog_log_path }}"
+    else
+        EXIT_CODE=$?
+
+        echo "$(date --iso-8601=seconds): ERROR: pg-node restart failed or timed out (exit=${EXIT_CODE})." \
+            >> "{{ pasarguard_watchdog_log_path }}"
+    fi
+fi

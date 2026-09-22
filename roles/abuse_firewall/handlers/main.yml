@@ -1,0 +1,3 @@
+---
+- name: Run initial firewall update
+  ansible.builtin.shell: /root/abuse-defender-update.sh

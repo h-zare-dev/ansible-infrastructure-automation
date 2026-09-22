@@ -1,0 +1,28 @@
+---
+- name: Install Prometheus Node Exporter
+  ansible.builtin.apt:
+    name: "{{ monitoring_node_exporter_package }}"
+    update_cache: true
+    state: present
+  tags:
+    - monitoring
+    - packages
+
+- name: Enable and start Prometheus Node Exporter
+  ansible.builtin.systemd:
+    name: "{{ monitoring_node_exporter_service }}"
+    enabled: true
+    state: started
+  tags:
+    - monitoring
+
+- name: Generate Prometheus targets from inventory
+  ansible.builtin.template:
+    src: targets.json.j2
+    dest: "{{ monitoring_targets_path }}"
+    mode: "0644"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  tags:
+    - monitoring

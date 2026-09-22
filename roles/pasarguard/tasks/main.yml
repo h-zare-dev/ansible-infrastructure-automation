@@ -1,0 +1,36 @@
+---
+- name: Install PasarGuard
+  ansible.builtin.shell: >
+    bash -c "$(curl -sL {{ pasarguard_installer_url | quote }})" @
+    -y install
+    --override
+    --install-service
+    --use-rest
+    --api-key "{{ common_api_key }}"
+    --san-entries "{{ inventory_hostname | lower }}.{{ domain_suffix }}"
+  args:
+    executable: /bin/bash
+    creates: "{{ pasarguard_binary_path }}"
+  register: pg_install
+  no_log: true
+
+- name: Enforce PasarGuard service protocol
+  ansible.builtin.lineinfile:
+    path: "{{ pasarguard_env_path }}"
+    regexp: '^#?\s*SERVICE_PROTOCOL=.*'
+    line: 'SERVICE_PROTOCOL="{{ pasarguard_service_protocol }}"'
+  register: pg_protocol
+
+- name: Restart PasarGuard node when configuration changes
+  ansible.builtin.command:
+    cmd: "{{ pasarguard_binary_path }} restart --no-logs"
+  when:
+    - pg_protocol.changed or pg_install.changed
+
+- name: Fetch PasarGuard SSL certificate to controller
+  ansible.builtin.fetch:
+    src: "{{ pasarguard_cert_path }}"
+    dest: "{{ pasarguard_cert_destination_dir }}/{{ inventory_hostname | lower }}_cert.pem"
+    flat: true
+  register: pg_cert_fetch
+  failed_when: false

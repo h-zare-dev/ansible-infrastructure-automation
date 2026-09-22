@@ -1,0 +1,10 @@
+[
+  {
+    "targets": ["127.0.0.1:{{ monitoring_node_exporter_port }}"],
+    "labels": { "instance": "pasarguard" }
+  }{% for host in groups['all'] %},
+  {
+    "targets": ["{{ hostvars[host]['ansible_host'] }}:{{ monitoring_node_exporter_port }}"],
+    "labels": { "instance": "{{ host | lower }}" }
+  }{% endfor %}
+]

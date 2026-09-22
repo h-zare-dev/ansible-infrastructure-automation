@@ -1,0 +1,47 @@
+# Backups
+backups/
+
+# Ansible runtime files
+*.retry
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editors / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local environment / secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Ansible Vault password files
+.vault_pass
+vault_pass
+vault-password
+vault-password.txt
+
+# SSH private keys
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+
+# Production-only inventory and secrets
+inventory/hosts.ini
+inventory/group_vars/all/vault.yml

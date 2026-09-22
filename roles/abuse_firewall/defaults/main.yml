@@ -1,0 +1,26 @@
+---
+abuse_firewall_ip_list_url: "https://raw.githubusercontent.com/Kiya6955/Abuse-Defender/main/abuse-ips.ipv4"
+
+abuse_firewall_script_path: "/root/abuse-defender-update.sh"
+
+abuse_firewall_managed_chain: "abuse-defender"
+abuse_firewall_udp_chain: "DOCKER-UDP-FILTER"
+
+abuse_firewall_dns_ips:
+  - "1.1.1.1"
+  - "1.1.1.2"
+  - "1.0.0.1"
+  - "8.8.8.8"
+  - "9.9.9.9"
+  - "8.8.4.4"
+
+abuse_firewall_udp_allowed_ports:
+  - 53
+  - 1053
+
+abuse_firewall_custom_bogons:
+  - "102.91.14.0/23"
+  - "102.91.16.0/20"
+  - "123.44.0.0/15"
+  - "1.2.3.0/24"
+  - "127.0.53.53"

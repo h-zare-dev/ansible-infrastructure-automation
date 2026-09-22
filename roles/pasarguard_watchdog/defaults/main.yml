@@ -1,0 +1,10 @@
+---
+pasarguard_watchdog_memory_threshold: 80
+pasarguard_watchdog_cron_minute: "*/5"
+
+pasarguard_watchdog_script_path: "/usr/local/bin/pg-watchdog.sh"
+pasarguard_watchdog_log_path: "/var/log/pg-watchdog.log"
+pasarguard_watchdog_lock_path: "/run/pg-watchdog.lock"
+pasarguard_watchdog_pg_node_path: "/usr/local/bin/pg-node"
+
+pasarguard_watchdog_restart_timeout: 60

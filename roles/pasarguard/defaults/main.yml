@@ -1,0 +1,10 @@
+---
+pasarguard_installer_url: "https://github.com/PasarGuard/scripts/raw/main/pg-node.sh"
+
+pasarguard_binary_path: "/usr/local/bin/pg-node"
+pasarguard_env_path: "/opt/pg-node/.env"
+
+pasarguard_cert_path: "/var/lib/pg-node/certs/ssl_cert.pem"
+pasarguard_cert_destination_dir: "/opt/monitoring/pasarguard_certs"
+
+pasarguard_service_protocol: "rest"

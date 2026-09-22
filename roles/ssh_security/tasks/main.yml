@@ -1,0 +1,53 @@
+---
+- name: Ensure root SSH directory exists
+  ansible.builtin.file:
+    path: "/root/.ssh"
+    state: directory
+    mode: "0700"
+    owner: "{{ ssh_security_root_user }}"
+    group: "{{ ssh_security_root_user }}"
+
+- name: Install official SSH public key for root
+  ansible.posix.authorized_key:
+    user: "{{ ssh_security_root_user }}"
+    state: present
+    exclusive: true
+    key: "{{ lookup('file', ssh_security_public_key_path) }}"
+
+- name: Check whether ubuntu user exists
+  ansible.builtin.command:
+    cmd: getent passwd "{{ ssh_security_ubuntu_user }}"
+  register: ssh_security_ubuntu_check
+  changed_when: false
+  failed_when: false
+
+- name: Ensure ubuntu SSH directory exists
+  ansible.builtin.file:
+    path: "/home/{{ ssh_security_ubuntu_user }}/.ssh"
+    state: directory
+    mode: "0700"
+    owner: "{{ ssh_security_ubuntu_user }}"
+    group: "{{ ssh_security_ubuntu_user }}"
+  when: ssh_security_ubuntu_check.rc == 0
+
+- name: Install official SSH public key for ubuntu
+  ansible.posix.authorized_key:
+    user: "{{ ssh_security_ubuntu_user }}"
+    state: present
+    exclusive: true
+    key: "{{ lookup('file', ssh_security_public_key_path) }}"
+  when: ssh_security_ubuntu_check.rc == 0
+
+- name: Deploy SSH security configuration
+  ansible.builtin.copy:
+    dest: "{{ ssh_security_config_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "/usr/sbin/sshd -t -f %s"
+    content: |
+      PermitRootLogin {{ ssh_security_permit_root_login }}
+      PasswordAuthentication {{ ssh_security_password_authentication }}
+      ChallengeResponseAuthentication {{ ssh_security_challenge_response_authentication }}
+      PubkeyAuthentication {{ ssh_security_pubkey_authentication }}
+  notify: Restart SSH service

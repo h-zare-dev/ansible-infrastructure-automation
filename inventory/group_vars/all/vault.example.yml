@@ -1,0 +1,7 @@
+---
+vault_ansible_password: "CHANGE_ME"
+vault_ansible_become_pass: "CHANGE_ME"
+vault_cf_api_token: "CHANGE_ME"
+vault_common_api_key: "CHANGE_ME"
+vault_domain_suffix: "example.com"
+vault_ssh_public_key_path: "/path/to/your/id_ed25519.pub"

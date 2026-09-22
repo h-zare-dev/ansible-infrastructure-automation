@@ -1,0 +1,42 @@
+---
+- name: Secure SSH access
+  hosts: all
+  become: true
+  roles:
+    - ssh_security
+
+- name: Apply essential setup
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Configure monitoring
+  hosts: all
+  become: true
+  roles:
+    - monitoring
+
+- name: Setup Docker Engine
+  hosts: pasarguard_nodes
+  become: true
+  roles:
+    - docker
+
+- name: Install PasarGuard
+  hosts: pasarguard_nodes
+  become: true
+  roles:
+    - pasarguard
+
+- name: Configure PasarGuard memory watchdog
+  hosts: pasarguard_nodes
+  become: true
+  roles:
+    - pasarguard_watchdog
+
+- name: Apply Abuse-Defender firewall rules
+  hosts: abuse_protected
+  become: true
+  roles:
+    - abuse_firewall

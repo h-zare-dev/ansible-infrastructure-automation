@@ -1,0 +1,24 @@
+---
+- name: Manage ICMP Echo (Ping) responses on servers
+  hosts: all
+  become: yes
+  vars:
+    ping_action: "allow"
+  tasks:
+    - name: Block Ping (Disable ICMP Echo)
+      ansible.posix.sysctl:
+        name: net.ipv4.icmp_echo_ignore_all
+        value: '1'
+        sysctl_set: yes
+        state: present
+        reload: yes
+      when: ping_action == "block"
+
+    - name: Allow Ping (Enable ICMP Echo)
+      ansible.posix.sysctl:
+        name: net.ipv4.icmp_echo_ignore_all
+        value: '0'
+        sysctl_set: yes
+        state: present
+        reload: yes
+      when: ping_action == "allow"

@@ -1,0 +1,18 @@
+---
+docker_architecture: "amd64"
+docker_keyring_dir: "/etc/apt/keyrings"
+docker_gpg_key_path: "{{ docker_keyring_dir }}/docker.asc"
+
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+docker_dependencies:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
