@@ -1,19 +1,34 @@
-# PasarGuard Ansible Infrastructure
+# Ansible Infrastructure Automation
 
-Ansible infrastructure project for provisioning, securing, configuring, and operating PasarGuard nodes.
+Production-oriented Ansible project for provisioning, securing, monitoring, and operating a multi-node Linux infrastructure.
 
-## Project Structure
+The repository demonstrates a practical Infrastructure-as-Code workflow with reusable roles, secure bootstrap, Docker provisioning, monitoring, firewall automation, operational playbooks, and idempotent configuration management.
+
+## Highlights
+
+- Secure SSH bootstrap with key-based authentication
+- Centralized inventory and group-based configuration
+- Docker Engine installation from the official repository
+- Prometheus Node Exporter deployment and target generation
+- Application node provisioning and watchdog automation
+- Abuse/firewall rule management for selected nodes
+- Ansible Vault integration for sensitive configuration
+- Separate operational playbooks for optimization and ICMP control
+- Idempotent infrastructure management verified with repeated runs
+- Sanitized public inventory and Vault examples for safe portfolio use
+
+## Architecture
 
 ```text
-ansible-project/
+ansible-infrastructure-automation/
 ├── ansible.cfg
 ├── requirements.yml
 ├── inventory/
-│   ├── hosts.ini
+│   ├── hosts.example.ini
 │   └── group_vars/
 │       ├── all/
 │       │   ├── vars.yml
-│       │   └── vault.yml
+│       │   └── vault.yml.example
 │       └── ssh_ubuntu.yml
 ├── playbooks/
 │   ├── bootstrap.yml
@@ -33,23 +48,23 @@ ansible-project/
     └── optimization/
 ```
 
-## Main Playbooks
+Production inventory and encrypted Vault files are intentionally excluded from version control. The repository contains safe example files instead.
+
+## Playbooks
 
 ### `site.yml`
 
-Main configuration playbook.
+Main configuration entry point.
 
-It applies:
+It applies the core infrastructure roles in order:
 
 1. SSH security
 2. Common server configuration
-3. Prometheus Node Exporter monitoring
-4. Docker Engine
-5. PasarGuard
-6. PasarGuard memory watchdog
-7. Abuse-Defender firewall rules on selected nodes
-
-Run:
+3. Monitoring
+4. Docker
+5. Application node provisioning
+6. Memory watchdog
+7. Firewall protection for selected nodes
 
 ```bash
 ansible-playbook playbooks/site.yml
@@ -57,59 +72,47 @@ ansible-playbook playbooks/site.yml
 
 ### `bootstrap.yml`
 
-Used only for initial provisioning of a new server before SSH key authentication has been established.
+Used for first-time server onboarding before SSH key authentication is available.
 
-The bootstrap process uses credentials stored in Ansible Vault, installs the authorized SSH key, and applies SSH security configuration.
-
-Run for a single host:
+The bootstrap workflow uses credentials supplied through Ansible Vault, installs the authorized SSH key, and applies SSH hardening to a single selected host.
 
 ```bash
-ansible-playbook playbooks/bootstrap.yml \
-  -e bootstrap_host=SERVER_NAME
+ansible-playbook playbooks/bootstrap.yml   -e bootstrap_host=SERVER_NAME
 ```
-
-After bootstrap, normal Ansible management uses SSH key authentication.
 
 ### `security.yml`
 
-Applies SSH security configuration independently:
+Re-applies SSH hardening independently from the full infrastructure deployment.
 
 ```bash
 ansible-playbook playbooks/security.yml
 ```
 
-### Operations
+### Operational playbooks
 
-Operational playbooks are kept separately under:
+Operational tasks are intentionally separated from desired-state configuration:
 
 ```text
 playbooks/operations/
+├── optimize.yml
+└── ping-control.yml
 ```
 
-They include:
+## Inventory Design
 
-- `optimize.yml` — server optimization
-- `ping-control.yml` — connectivity/control operations
+The example inventory demonstrates functional grouping rather than provider-specific grouping.
 
-## Inventory Groups
+- `pasarguard_nodes` — application nodes managed by the main deployment
+- `ssh_ubuntu` — hosts accessed through an `ubuntu` user with privilege escalation
+- `abuse_protected` — hosts receiving additional firewall protection
 
-### `pasarguard_nodes`
+Real hostnames, IP addresses, providers, regions, and production credentials are not stored in the public repository.
 
-Servers managed as PasarGuard nodes.
+## Security Model
 
-### `ssh_ubuntu`
+SSH access is hardened to use public-key authentication.
 
-Servers where Ansible connects using the `ubuntu` user and uses passwordless sudo for privilege escalation.
-
-### `abuse_protected`
-
-Servers where Abuse-Defender firewall rules are applied.
-
-## SSH Security
-
-Managed servers are configured for key-based SSH authentication.
-
-Expected effective SSH configuration:
+The role enforces settings such as:
 
 ```text
 PubkeyAuthentication yes
@@ -118,73 +121,68 @@ KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
 ```
 
-Some OpenSSH versions may report:
-
-```text
-PermitRootLogin without-password
-```
-
-which provides the same password-login restriction for root.
+Secrets and environment-specific values are referenced through Ansible Vault. Production Vault files, Vault passwords, private keys, real domains, and real inventory data are excluded from Git.
 
 ## Monitoring
 
-Prometheus Node Exporter is installed and enabled on managed hosts.
+The monitoring role installs and enables Prometheus Node Exporter and generates Prometheus targets dynamically from the Ansible inventory.
 
-Default exporter port:
+This keeps monitoring discovery aligned with infrastructure state instead of maintaining a separate static target list.
+
+## Docker Provisioning
+
+The Docker role:
+
+- installs required dependencies
+- configures the official Docker repository
+- installs Docker Engine, Buildx, and the Compose plugin
+- enables and starts the Docker service
+
+## Reliability and Idempotency
+
+The infrastructure was validated with:
+
+- Ansible syntax checks
+- connectivity checks across managed nodes
+- full `site.yml` execution
+- repeated execution with `changed=0`
+- SSH effective-configuration checks
+- real password-login rejection tests
+
+The goal is predictable, repeatable infrastructure management without unnecessary changes on subsequent runs.
+
+## Public Repository Safety
+
+This repository is sanitized for portfolio use.
+
+Use the example files as templates:
 
 ```text
-9100
+inventory/hosts.example.ini
+inventory/group_vars/all/vault.yml.example
 ```
 
-Prometheus targets are generated from the Ansible inventory at:
+Create local production copies when deploying:
 
-```text
-/opt/monitoring/targets.json
+```bash
+cp inventory/hosts.example.ini inventory/hosts.ini
+cp inventory/group_vars/all/vault.yml.example inventory/group_vars/all/vault.yml
 ```
 
-## Secrets
+Then encrypt the production Vault file:
 
-Sensitive values are stored with Ansible Vault.
-
-The project references secrets such as:
-
-```text
-vault_ansible_password
-vault_ansible_become_pass
-vault_cf_api_token
-vault_common_api_key
+```bash
+ansible-vault encrypt inventory/group_vars/all/vault.yml
 ```
 
-Do not store plaintext secrets, private SSH keys, or Vault passwords in the repository.
+Do not commit production inventory, Vault passwords, private SSH keys, real domains, or infrastructure credentials.
 
 ## Dependencies
 
-Install required Ansible collections with:
+Install the required Ansible collections:
 
 ```bash
 ansible-galaxy collection install -r requirements.yml
-```
-
-## New Server Workflow
-
-1. Add the server to `inventory/hosts.ini`.
-2. Assign it to the appropriate inventory groups.
-3. Ensure the initial credentials required for bootstrap are available through Ansible Vault.
-4. Run `bootstrap.yml` for that host.
-5. Verify SSH key connectivity.
-6. Run `site.yml` for that host.
-7. Verify the resulting services and security configuration.
-
-Example:
-
-```bash
-ansible-playbook playbooks/bootstrap.yml \
-  -e bootstrap_host=NEW-SERVER
-
-ansible NEW-SERVER -m ansible.builtin.ping
-
-ansible-playbook playbooks/site.yml \
-  --limit NEW-SERVER
 ```
 
 ## Validation
@@ -195,10 +193,38 @@ Syntax check:
 ansible-playbook playbooks/site.yml --syntax-check
 ```
 
+Inventory validation:
+
+```bash
+ansible-inventory --graph
+```
+
 Connectivity:
 
 ```bash
 ansible all -m ansible.builtin.ping
 ```
 
-A repeat execution of `site.yml` should normally complete without failures or unreachable hosts and should produce no configuration changes when the infrastructure is already in the desired state.
+## Skills Demonstrated
+
+This project demonstrates hands-on experience with:
+
+- Ansible and Infrastructure as Code
+- Linux server provisioning
+- SSH hardening and privilege escalation
+- Secrets management with Ansible Vault
+- Docker deployment
+- Prometheus monitoring
+- Firewall automation
+- Idempotent configuration management
+- Multi-node infrastructure operations
+- Git-based infrastructure workflows
+
+## Roadmap
+
+Planned improvements:
+
+- `ansible-lint` and `yamllint`
+- GitHub Actions CI for automated validation
+- additional test automation
+- further role documentation
