@@ -2,7 +2,7 @@
 
 Production-oriented Ansible project for provisioning, securing, monitoring, and operating a multi-node Linux infrastructure.
 
-The repository demonstrates a practical Infrastructure-as-Code workflow with reusable roles, secure bootstrap, Docker provisioning, monitoring, firewall automation, operational playbooks, and idempotent configuration management.
+The repository demonstrates a practical Infrastructure-as-Code workflow with reusable roles, secure bootstrap, Docker provisioning, monitoring, firewall automation, operational playbooks, controlled system maintenance, automatic security patching, and idempotent configuration management.
 
 ## Highlights
 
@@ -13,7 +13,9 @@ The repository demonstrates a practical Infrastructure-as-Code workflow with reu
 - Application node provisioning and watchdog automation
 - Abuse/firewall rule management for selected nodes
 - Ansible Vault integration for sensitive configuration
-- Separate operational playbooks for optimization and ICMP control
+- Separate operational playbooks for optimization, ICMP control, and system maintenance
+- Controlled rolling system upgrades with automatic reboot detection
+- Automatic security patching with unattended-upgrades and disabled automatic reboots
 - Idempotent infrastructure management verified with repeated runs
 - Sanitized public inventory and Vault examples for safe portfolio use
 
@@ -36,7 +38,9 @@ ansible-infrastructure-automation/
 │   ├── site.yml
 │   └── operations/
 │       ├── optimize.yml
-│       └── ping-control.yml
+│       ├── ping-control.yml
+│       ├── system-update.yml
+│       └── security-updates.yml
 └── roles/
     ├── ssh_security/
     ├── common/
@@ -45,7 +49,8 @@ ansible-infrastructure-automation/
     ├── pasarguard/
     ├── pasarguard_watchdog/
     ├── abuse_firewall/
-    └── optimization/
+    ├── optimization/
+    └── security_updates/
 ```
 
 Production inventory and encrypted Vault files are intentionally excluded from version control. The repository contains safe example files instead.
@@ -77,7 +82,7 @@ Used for first-time server onboarding before SSH key authentication is available
 The bootstrap workflow uses credentials supplied through Ansible Vault, installs the authorized SSH key, and applies SSH hardening to a single selected host.
 
 ```bash
-ansible-playbook playbooks/bootstrap.yml   -e bootstrap_host=SERVER_NAME
+ansible-playbook playbooks/bootstrap.yml -e bootstrap_host=SERVER_NAME
 ```
 
 ### `security.yml`
@@ -95,7 +100,44 @@ Operational tasks are intentionally separated from desired-state configuration:
 ```text
 playbooks/operations/
 ├── optimize.yml
-└── ping-control.yml
+├── ping-control.yml
+├── system-update.yml
+└── security-updates.yml
+```
+
+### Controlled system updates
+
+`system-update.yml` performs rolling package maintenance across managed nodes.
+
+It updates the APT cache, applies distribution upgrades, removes obsolete dependencies, cleans package files, detects whether a reboot is required, and reboots only when necessary.
+
+The playbook uses:
+
+```yaml
+serial: 1
+```
+
+This keeps maintenance sequential so only one managed node is updated or rebooted at a time.
+
+```bash
+ansible-playbook playbooks/operations/system-update.yml
+```
+
+### Automatic security updates
+
+`security-updates.yml` applies the `security_updates` role to configure automatic security patching using Ubuntu's `unattended-upgrades`.
+
+The configuration:
+
+- enables periodic package-list updates
+- enables unattended security updates
+- limits automatic installation to security updates
+- disables automatic rebooting
+
+Reboots remain an explicit maintenance operation and can be handled safely through `system-update.yml`.
+
+```bash
+ansible-playbook playbooks/operations/security-updates.yml
 ```
 
 ## Inventory Design
@@ -146,6 +188,8 @@ The infrastructure was validated with:
 - connectivity checks across managed nodes
 - full `site.yml` execution
 - repeated execution with `changed=0`
+- rolling package upgrades with reboot detection
+- unattended security-update deployment across managed nodes
 - SSH effective-configuration checks
 - real password-login rejection tests
 
@@ -216,6 +260,8 @@ This project demonstrates hands-on experience with:
 - Docker deployment
 - Prometheus monitoring
 - Firewall automation
+- Linux package lifecycle and security patch management
+- Controlled rolling maintenance and reboot handling
 - Idempotent configuration management
 - Multi-node infrastructure operations
 - Git-based infrastructure workflows
