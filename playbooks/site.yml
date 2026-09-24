@@ -40,3 +40,9 @@
   become: true
   roles:
     - abuse_firewall
+
+- name: Optimize managed nodes
+  hosts: pasarguard_nodes
+  become: true
+  roles:
+    - optimization

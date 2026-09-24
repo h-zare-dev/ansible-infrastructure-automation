@@ -183,6 +183,7 @@ It currently applies the following stages:
 5. Application-node installation
 6. Memory watchdog
 7. Firewall protection for selected hosts
+8. System optimization for managed application nodes
 
 Run on all applicable managed hosts:
 
@@ -197,9 +198,9 @@ ansible-playbook playbooks/site.yml \
   --limit SERVER_NAME
 ```
 
-The main deployment intentionally does **not** perform full system upgrades, optimization, ICMP policy changes, or security-update policy rollout automatically.
+The main deployment includes system optimization as part of the normal desired state for managed application nodes.
 
-Those operations are separated into dedicated playbooks.
+Full system upgrades, ICMP policy changes, and security-update policy rollout remain separate operational actions.
 
 ---
 
@@ -309,13 +310,18 @@ This playbook is intentionally separate from `site.yml`.
 
 ## Optimization
 
-`playbooks/operations/optimize.yml` applies the optimization role independently.
+The optimization role is part of the normal `site.yml` deployment for managed application nodes.
+
+A dedicated operational playbook is also kept so optimization can be executed independently without running the full site deployment.
 
 ```bash
 ansible-playbook playbooks/operations/optimize.yml
 ```
 
-Optimization is kept separate from ordinary provisioning so performance tuning can be executed explicitly and reviewed independently.
+This allows both:
+
+- automatic optimization during normal provisioning
+- manual re-application of optimization when required
 
 ## ICMP / Ping Control
 
@@ -778,7 +784,7 @@ Normal playbooks should be safe to execute repeatedly.
 
 ### Operational maintenance is explicit
 
-System upgrades and optimization are not hidden inside everyday deployment.
+System optimization is part of the normal desired state, while system upgrades and other maintenance operations remain explicit and separate.
 
 ### Reboots are controlled
 
