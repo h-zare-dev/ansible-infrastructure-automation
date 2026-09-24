@@ -16,6 +16,17 @@
   tags:
     - monitoring
 
+- name: Ensure Prometheus targets directory exists
+  ansible.builtin.file:
+    path: "{{ monitoring_targets_path | dirname }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  tags:
+    - monitoring
+
 - name: Generate Prometheus targets from inventory
   ansible.builtin.template:
     src: targets.json.j2

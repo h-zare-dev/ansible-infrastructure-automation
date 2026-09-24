@@ -1,5 +1,5 @@
 ---
 monitoring_node_exporter_package: prometheus-node-exporter
 monitoring_node_exporter_service: prometheus-node-exporter
-monitoring_targets_path: /opt/monitoring/targets.json
+monitoring_targets_path: /opt/monitoring/targets/targets.json
 monitoring_node_exporter_port: 9100

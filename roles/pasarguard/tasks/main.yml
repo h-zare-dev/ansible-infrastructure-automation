@@ -12,7 +12,7 @@
     executable: /bin/bash
     creates: "{{ pasarguard_binary_path }}"
   register: pg_install
-  no_log: true
+  no_log: false
 
 - name: Enforce PasarGuard service protocol
   ansible.builtin.lineinfile:
