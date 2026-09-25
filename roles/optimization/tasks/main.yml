@@ -1,9 +1,9 @@
 ---
 - name: Download and execute ServerTools auto-optimization
   ansible.builtin.shell: >
-    curl -sL https://raw.githubusercontent.com/Sir-Adnan/server-tools/main/dist/server-tools.sh | bash -s --
-    --auto
-    --profile vpn-node
+    curl -sL https://raw.githubusercontent.com/Sir-Adnan/server-tools/main/dist/server-tools.sh | bash -s -- 
+    --auto 
+    --profile vpn-node 
     --dns "{{ server_dns_provider }}"
   args:
     executable: /bin/bash

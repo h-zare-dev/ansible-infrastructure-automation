@@ -1,5 +1,0 @@
-{% for host in groups['all'] | sort %}
-Host {{ host | lower }}
-  HostName {{ host | lower }}.{{ domain_suffix }}
-  User {{ hostvars[host].ansible_user | default('root') }}
-{% endfor %}

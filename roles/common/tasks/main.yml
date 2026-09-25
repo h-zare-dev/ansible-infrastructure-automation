@@ -1,0 +1,40 @@
+---
+- name: Create DNS A record in Cloudflare automatically
+  delegate_to: localhost
+  become: false
+  community.general.cloudflare_dns:
+    zone: "{{ domain_suffix }}"
+    record: "{{ inventory_hostname | lower }}"
+    type: A
+    value: "{{ ansible_host }}"
+    api_token: "{{ cf_api_token }}"
+    proxied: false
+  tags:
+    - dns
+
+- name: Set system hostname exactly as Grafana/Prometheus instance
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname | lower }}"
+  tags:
+    - hostname
+
+- name: Configure Cloudflare DNS in systemd-resolved
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/resolved.conf
+    regexp: '^#?DNS='
+    line: 'DNS=1.1.1.1 1.0.0.1'
+    state: present
+  notify: Restart systemd-resolved
+  tags:
+    - dns
+
+- name: Install common packages
+  ansible.builtin.apt:
+    name:
+      - btop
+      - curl
+      - cron
+    update_cache: true
+    state: present
+  tags:
+    - packages

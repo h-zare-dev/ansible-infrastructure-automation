@@ -1,2 +1,0 @@
----
-controller_ssh_config_path: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/config"

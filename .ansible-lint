@@ -1,7 +1,0 @@
----
-offline: true
-extra_vars:
-  bootstrap_host: node-01
-exclude_paths:
-  - inventory/hosts.ini
-  - inventory/group_vars/all/vault.yml
