@@ -10,3 +10,4 @@
   roles:
     - ssh_security
     - cloudflare_dns
+    - controller_ssh_config

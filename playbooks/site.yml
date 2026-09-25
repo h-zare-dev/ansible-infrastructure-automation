@@ -13,6 +13,7 @@
     - hostname
     - dns_resolver
     - base_packages
+    - controller_ssh_config
 
 - name: Configure monitoring
   hosts: all
