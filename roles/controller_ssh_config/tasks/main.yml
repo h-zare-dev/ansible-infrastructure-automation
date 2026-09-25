@@ -1,0 +1,77 @@
+---
+- name: Maintain controller SSH shortcuts
+  delegate_to: localhost
+  become: false
+  run_once: true
+  vars:
+    controller_ssh_config_marker: ANSIBLE MANAGED INVENTORY SSH HOSTS
+    controller_ssh_config_begin_marker: "# BEGIN {{ controller_ssh_config_marker }}"
+    controller_ssh_config_end_marker: "# END {{ controller_ssh_config_marker }}"
+    controller_ssh_config_managed_pattern: "(?ms)^{{ controller_ssh_config_begin_marker | regex_escape }}\\r?\\n.*?^{{ controller_ssh_config_end_marker | regex_escape }}(?:\\r?\\n|$)"
+  block:
+    - name: Check for duplicate lowercase SSH aliases
+      ansible.builtin.assert:
+        that:
+          - (groups['all'] | map('lower') | unique | list | length) == (groups['all'] | length)
+        fail_msg: Inventory host names produce duplicate lowercase SSH aliases.
+
+    - name: Check whether controller SSH config exists
+      ansible.builtin.stat:
+        path: "{{ controller_ssh_config_path }}"
+      register: controller_ssh_config_stat
+
+    - name: Read existing controller SSH config
+      ansible.builtin.slurp:
+        src: "{{ controller_ssh_config_path }}"
+      register: controller_ssh_config_existing
+      when: controller_ssh_config_stat.stat.exists
+
+    - name: Check existing managed section markers
+      ansible.builtin.assert:
+        that:
+          - controller_ssh_config_begin_count == controller_ssh_config_end_count
+          - controller_ssh_config_begin_count <= 1
+          - controller_ssh_config_begin_count == 0 or (controller_ssh_config_existing_text | regex_search(controller_ssh_config_managed_pattern)) is not none
+        fail_msg: Existing controller SSH config has incomplete or repeated Ansible managed section markers.
+      vars:
+        controller_ssh_config_existing_text: "{{ controller_ssh_config_existing.content | default('') | b64decode }}"
+        controller_ssh_config_begin_count: "{{ controller_ssh_config_existing_text | regex_findall('(?m)^' ~ (controller_ssh_config_begin_marker | regex_escape) ~ '\\r?$') | length }}"
+        controller_ssh_config_end_count: "{{ controller_ssh_config_existing_text | regex_findall('(?m)^' ~ (controller_ssh_config_end_marker | regex_escape) ~ '\\r?$') | length }}"
+
+    - name: Reject manually defined SSH aliases that match inventory hosts
+      ansible.builtin.assert:
+        that:
+          - controller_ssh_config_conflicts | length == 0
+        fail_msg: "Manual SSH Host aliases conflict with inventory: {{ controller_ssh_config_conflicts | join(', ') }}"
+      vars:
+        controller_ssh_config_existing_text: "{{ controller_ssh_config_existing.content | default('') | b64decode }}"
+        controller_ssh_config_unmanaged_text: "{{ controller_ssh_config_existing_text | regex_replace(controller_ssh_config_managed_pattern, '') }}"
+        controller_ssh_config_manual_aliases: "{{ controller_ssh_config_unmanaged_text | regex_findall('(?im)^[ \\t]*Host[ \\t]+([^#\\r\\n]+)') | map('split') | flatten | map('lower') | list }}"
+        controller_ssh_config_conflicts: "{{ controller_ssh_config_manual_aliases | intersect(groups['all'] | map('lower') | list) | sort }}"
+
+    - name: Relocate managed SSH shortcuts ahead of conditional sections
+      ansible.builtin.blockinfile:
+        path: "{{ controller_ssh_config_path }}"
+        marker: "# {mark} {{ controller_ssh_config_marker }}"
+        state: absent
+      vars:
+        controller_ssh_config_existing_text: "{{ controller_ssh_config_existing.content | default('') | b64decode }}"
+        controller_ssh_config_before_managed: "{{ controller_ssh_config_existing_text.split(controller_ssh_config_begin_marker, 1)[0] }}"
+      when:
+        - controller_ssh_config_begin_marker in controller_ssh_config_existing_text
+        - (controller_ssh_config_before_managed | regex_search('(?im)^[ \\t]*(?:Host|Match)[ \\t]+')) is not none
+
+    - name: Ensure controller SSH directory exists
+      ansible.builtin.file:
+        path: "{{ controller_ssh_config_path | dirname }}"
+        state: directory
+        mode: "0700"
+
+    - name: Manage inventory SSH shortcuts
+      ansible.builtin.blockinfile:
+        path: "{{ controller_ssh_config_path }}"
+        create: true
+        mode: "0600"
+        marker: "# {mark} {{ controller_ssh_config_marker }}"
+        insertbefore: '(?im)^[ \t]*(?:Host|Match)[ \t]+'
+        block: "{{ lookup('ansible.builtin.template', 'hosts.j2') }}"
