@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INVENTORY="inventory/hosts.example.ini"
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+export ANSIBLE_CONFIG="$repo_root/ansible.cfg"
+# Isolate example group vars from any ignored production files beside them.
+inventory_dir="$(mktemp -d)"
+trap 'rm -rf -- "$inventory_dir"' EXIT
+mkdir -p "$inventory_dir/group_vars/all"
+cp inventory/hosts.example.ini "$inventory_dir/hosts.example.ini"
+cp inventory/group_vars/all/vars.yml "$inventory_dir/group_vars/all/vars.yml"
+cp inventory/group_vars/all/vault.yml.example "$inventory_dir/group_vars/all/vault.yml"
+cp inventory/group_vars/ssh_ubuntu.yml "$inventory_dir/group_vars/ssh_ubuntu.yml"
+export ANSIBLE_INVENTORY="$inventory_dir/hosts.example.ini"
+INVENTORY="$ANSIBLE_INVENTORY"
 
 echo "==> Checking Git diff formatting"
 git diff --check
@@ -11,7 +24,23 @@ echo "==> Checking repository status"
 git status --short
 
 echo
-echo "==> Running Ansible syntax checks"
+echo "==> Running yamllint"
+yamllint -f parsable \
+  .yamllint \
+  .ansible-lint \
+  requirements.yml \
+  inventory/group_vars/all/vars.yml \
+  inventory/group_vars/all/vault.yml.example \
+  inventory/group_vars/ssh_ubuntu.yml \
+  playbooks \
+  roles
+
+echo
+echo "==> Running ansible-lint"
+ansible-lint --offline playbooks roles
+
+echo
+echo "==> Running Ansible syntax checks with example inventory"
 
 echo
 echo "---- playbooks/bootstrap.yml ----"
@@ -19,18 +48,16 @@ ansible-playbook \
   -i "$INVENTORY" \
   playbooks/bootstrap.yml \
   --syntax-check \
-  -e bootstrap_host=example-node
+  -e bootstrap_host=node-01
 
-playbooks=(
-  "playbooks/site.yml"
-  "playbooks/security.yml"
-  "playbooks/operations/optimize.yml"
-  "playbooks/operations/ping-control.yml"
-  "playbooks/operations/security-updates.yml"
-  "playbooks/operations/system-update.yml"
+mapfile -d '' -t playbooks < <(
+  find playbooks -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 | sort -z
 )
 
 for playbook in "${playbooks[@]}"; do
+  if [[ "$playbook" == "playbooks/bootstrap.yml" ]]; then
+    continue
+  fi
   echo
   echo "---- $playbook ----"
   ansible-playbook \
