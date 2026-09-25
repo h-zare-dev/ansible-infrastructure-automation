@@ -9,7 +9,11 @@
   hosts: all
   become: true
   roles:
-    - common
+    - cloudflare_dns
+    - hostname
+    - dns_resolver
+    - base_packages
+    - controller_ssh_config
 
 - name: Configure monitoring
   hosts: all

@@ -1,0 +1,10 @@
+---
+- name: Configure Cloudflare DNS in systemd-resolved
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/resolved.conf
+    regexp: '^#?DNS='
+    line: 'DNS=1.1.1.1 1.0.0.1'
+    state: present
+  notify: Restart systemd-resolved
+  tags:
+    - dns

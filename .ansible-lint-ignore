@@ -1,0 +1,14 @@
+# These existing tasks intentionally retain their current production behavior.
+# The firewall handler runs its existing shell script when notified.
+roles/abuse_firewall/handlers/main.yml command-instead-of-shell
+roles/abuse_firewall/handlers/main.yml no-changed-when
+# Resolver restarts currently tolerate failure.
+roles/dns_resolver/handlers/main.yml ignore-errors
+# Optimization invokes an external script and keeps its current result handling.
+roles/optimization/tasks/main.yml command-instead-of-module
+roles/optimization/tasks/main.yml no-changed-when
+roles/optimization/tasks/main.yml risky-shell-pipe
+roles/optimization/tasks/main.yml var-naming[no-role-prefix]
+# PasarGuard register names and guarded restart are existing behavior.
+roles/pasarguard/tasks/main.yml var-naming[no-role-prefix]
+roles/pasarguard/tasks/main.yml no-changed-when
