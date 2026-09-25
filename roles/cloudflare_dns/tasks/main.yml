@@ -1,0 +1,13 @@
+---
+- name: Create DNS A record in Cloudflare automatically
+  delegate_to: localhost
+  become: false
+  community.general.cloudflare_dns:
+    zone: "{{ domain_suffix }}"
+    record: "{{ inventory_hostname | lower }}"
+    type: A
+    value: "{{ ansible_host }}"
+    api_token: "{{ cf_api_token }}"
+    proxied: false
+  tags:
+    - dns
