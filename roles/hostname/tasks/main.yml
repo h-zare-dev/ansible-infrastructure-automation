@@ -1,6 +1,0 @@
----
-- name: Set system hostname exactly as Grafana/Prometheus instance
-  ansible.builtin.hostname:
-    name: "{{ inventory_hostname | lower }}"
-  tags:
-    - hostname
