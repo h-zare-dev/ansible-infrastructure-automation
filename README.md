@@ -2,14 +2,14 @@
 
 Production-oriented Ansible project for provisioning, securing, monitoring, and operating a multi-node Linux infrastructure.
 
-This repository demonstrates a practical Infrastructure-as-Code workflow built around reusable Ansible roles, secure first-time bootstrap, SSH hardening, common Linux configuration, Docker provisioning, Prometheus monitoring, application-node deployment, watchdog automation, firewall controls, controlled maintenance, and automatic security patching.
+This repository uses focused Ansible roles for SSH access, DNS and baseline Linux setup, Docker, Prometheus monitoring, PasarGuard nodes, watchdog automation, firewall controls, and controlled maintenance.
 
 The project is designed around two distinct workflows:
 
-1. **Initial server onboarding** — establish trusted SSH access to a fresh server.
+1. **Initial server onboarding** — establish SSH access, create a Cloudflare DNS record, and update controller SSH shortcuts.
 2. **Ongoing desired-state management** — repeatedly apply configuration safely and idempotently.
 
-Operational maintenance tasks such as system upgrades, security update configuration, optimization, and ICMP control are intentionally kept separate from the main deployment.
+System upgrades, security update policy, and ICMP control remain independent operations. Optimization runs in the main deployment and also has an independent playbook.
 
 ---
 
@@ -18,9 +18,11 @@ Operational maintenance tasks such as system upgrades, security update configura
 - Secure first-time SSH bootstrap using credentials stored in Ansible Vault
 - Public-key SSH authentication and hardened SSH configuration
 - Idempotent SSH policy enforcement on every normal deployment
+- Cloudflare DNS records managed by the same role during bootstrap and normal deployment
+- Inventory-derived SSH shortcuts on the Ansible controller
 - Centralized inventory and functional host grouping
 - Automated hostname and DNS configuration
-- Common package management, including required runtime dependencies such as `cron`
+- Baseline packages, including `cron` for the watchdog
 - Docker Engine installation from the official Docker repository
 - Prometheus Node Exporter deployment
 - Dynamic Prometheus target generation directly from Ansible inventory
@@ -31,10 +33,10 @@ Operational maintenance tasks such as system upgrades, security update configura
 - Controlled rolling system upgrades with automatic reboot detection
 - Automatic security patching with `unattended-upgrades`
 - Automatic reboot disabled for unattended security updates
-- Operational playbooks kept separate from normal desired-state deployment
+- Independent operational playbooks for system updates, security updates, and ping control
 - Ansible Vault integration for secrets and environment-specific values
 - Public repository sanitization for safe portfolio use
-- Tested end-to-end onboarding of newly provisioned servers
+- Local linting and syntax validation with sanitized example inventory
 
 ---
 
@@ -42,8 +44,15 @@ Operational maintenance tasks such as system upgrades, security update configura
 
 ```text
 ansible-infrastructure-automation/
+├── .ansible-lint
+├── .ansible-lint-ignore
+├── .yamllint
+├── AGENTS.md
 ├── ansible.cfg
+├── requirements-dev.txt
 ├── requirements.yml
+├── docs/
+│   └── refactor-plan.md
 ├── inventory/
 │   ├── hosts.example.ini
 │   └── group_vars/
@@ -60,10 +69,16 @@ ansible-infrastructure-automation/
 │       ├── ping-control.yml
 │       ├── security-updates.yml
 │       └── system-update.yml
+├── scripts/
+│   └── validate.sh
 └── roles/
     ├── abuse_firewall/
-    ├── common/
+    ├── base_packages/
+    ├── cloudflare_dns/
+    ├── controller_ssh_config/
+    ├── dns_resolver/
     ├── docker/
+    ├── hostname/
     ├── monitoring/
     ├── optimization/
     ├── pasarguard/
@@ -72,7 +87,7 @@ ansible-infrastructure-automation/
     └── ssh_security/
 ```
 
-Production inventory, encrypted Vault data, Vault passwords, real infrastructure addresses, domains, and credentials are intentionally excluded from version control.
+Production inventory, Vault data, Vault password files, private keys, and credentials are excluded from version control.
 
 ---
 
@@ -88,17 +103,13 @@ The correct onboarding sequence is:
 
 ```text
 Fresh server
-    ↓
-Add host to inventory
-    ↓
-bootstrap.yml
-    ↓
-SSH key installed
-SSH hardening applied
-    ↓
-site.yml
-    ↓
-Normal desired-state configuration
+  → add host to inventory
+  → bootstrap.yml
+      → ssh_security
+      → cloudflare_dns
+      → controller_ssh_config
+  → site.yml
+      → focused role orchestration
 ```
 
 ### Step 1 — Add the host to inventory
@@ -109,28 +120,25 @@ Example:
 
 ```ini
 [pasarguard_nodes]
-new-node ansible_host=203.0.113.10
+node-01 ansible_host=192.0.2.10
 ```
 
 Use the correct connection variables for the environment.
 
-### Step 2 — Bootstrap SSH access
+### Step 2 — Bootstrap SSH, DNS, and the controller shortcut
 
 Run:
 
 ```bash
 ansible-playbook playbooks/bootstrap.yml \
-  -e bootstrap_host=NEW_SERVER
+  -e bootstrap_host=node-01
 ```
 
-`bootstrap.yml` is specifically intended for first-time onboarding.
+`bootstrap.yml` targets `bootstrap_host` and uses Vault-provided SSH and privilege-escalation passwords. Its role order is exactly `ssh_security`, `cloudflare_dns`, `controller_ssh_config`:
 
-It uses credentials supplied through Ansible Vault and runs the `ssh_security` role to:
-
-- create the required SSH directory
-- install the official SSH public key
-- configure SSH hardening
-- restart SSH when configuration changes
+- `ssh_security` installs the managed public key, applies SSH hardening, and restarts SSH when its configuration changes.
+- `cloudflare_dns` creates or updates the host's Cloudflare A record.
+- `controller_ssh_config` updates the controller user's SSH shortcuts from the complete inventory, even though bootstrap targets only one host.
 
 ### Step 3 — Run the main deployment
 
@@ -138,10 +146,10 @@ After bootstrap succeeds:
 
 ```bash
 ansible-playbook playbooks/site.yml \
-  --limit NEW_SERVER
+  --limit node-01
 ```
 
-At this point key-based SSH authentication is available and the full desired-state deployment can proceed.
+At this point key-based SSH authentication, the DNS record, and the controller shortcut are in place for normal desired-state deployment.
 
 ---
 
@@ -161,10 +169,16 @@ This is intentional and not duplicate work.
 
 Because the role is idempotent, a correctly configured server should normally produce `ok` instead of unnecessary changes on later runs.
 
-This gives two guarantees:
+This supports both cases:
 
 - a fresh password-only server can be onboarded safely
 - an already managed server remains compliant if SSH configuration is changed manually later
+
+---
+
+# Cloudflare DNS Reuse
+
+`cloudflare_dns` is the same role in `bootstrap.yml` and `site.yml`. It manages each host's Cloudflare A record from its lowercase inventory name and `ansible_host`, with the zone supplied by `domain_suffix`. The DNS task is delegated to the controller; neither playbook duplicates its logic. API credentials remain in Vault-backed variables.
 
 ---
 
@@ -174,16 +188,22 @@ This gives two guarantees:
 
 `site.yml` is the primary desired-state configuration entry point.
 
-It currently applies the following stages:
+Its roles run in this order, across separate plays with different targets:
 
-1. SSH security
-2. Common server configuration
-3. Monitoring
-4. Docker Engine
-5. Application-node installation
-6. Memory watchdog
-7. Firewall protection for selected hosts
-8. System optimization for managed application nodes
+1. `ssh_security` — `all`
+2. `cloudflare_dns` — `all`
+3. `hostname` — `all`
+4. `dns_resolver` — `all`
+5. `base_packages` — `all`
+6. `controller_ssh_config` — an `all` play; runs once on the controller
+7. `monitoring` — `all`, with target generation on the controller
+8. `docker` — `pasarguard_nodes`
+9. `pasarguard` — `pasarguard_nodes`
+10. `pasarguard_watchdog` — `pasarguard_nodes`
+11. `abuse_firewall` — `abuse_protected`
+12. `optimization` — `pasarguard_nodes`
+
+An inventory host runs only the plays whose host groups include it. `all` includes inventory hosts without requiring an explicit `[all]` section.
 
 Run on all applicable managed hosts:
 
@@ -208,7 +228,7 @@ Full system upgrades, ICMP policy changes, and security-update policy rollout re
 
 ## `bootstrap.yml`
 
-First-time SSH onboarding for a new server.
+First-time SSH, Cloudflare DNS, and controller SSH shortcut onboarding for a new server.
 
 ```bash
 ansible-playbook playbooks/bootstrap.yml \
@@ -231,7 +251,7 @@ Useful when SSH policy needs to be enforced without running unrelated roles.
 
 # Operational Playbooks
 
-Operational tasks are intentionally separated from `site.yml`.
+System upgrades, security-update policy, and ping control are independent of `site.yml`. Optimization also has an independent entry point while remaining in `site.yml` for application nodes.
 
 ```text
 playbooks/operations/
@@ -241,11 +261,11 @@ playbooks/operations/
 └── system-update.yml
 ```
 
-This separation reduces unexpected production changes during ordinary configuration runs.
+Keeping system upgrades and security-update policy rollout separate avoids adding them to ordinary configuration runs.
 
 ## Controlled System Updates
 
-`playbooks/operations/system-update.yml` performs controlled package maintenance.
+`playbooks/operations/system-update.yml` performs controlled package maintenance on `pasarguard_nodes`.
 
 It:
 
@@ -283,7 +303,7 @@ This playbook is intentionally **not** part of `site.yml`.
 
 ## Automatic Security Updates
 
-`playbooks/operations/security-updates.yml` applies the `security_updates` role.
+`playbooks/operations/security-updates.yml` applies the `security_updates` role to `pasarguard_nodes`, one host at a time.
 
 It configures Ubuntu automatic security patching using `unattended-upgrades`.
 
@@ -312,7 +332,7 @@ This playbook is intentionally separate from `site.yml`.
 
 The optimization role is part of the normal `site.yml` deployment for managed application nodes.
 
-A dedicated operational playbook is also kept so optimization can be executed independently without running the full site deployment.
+A dedicated operational playbook targets `all`, so optimization can also be executed independently without running the full site deployment.
 
 ```bash
 ansible-playbook playbooks/operations/optimize.yml
@@ -321,11 +341,13 @@ ansible-playbook playbooks/operations/optimize.yml
 This allows both:
 
 - automatic optimization during normal provisioning
-- manual re-application of optimization when required
+- explicit re-application of optimization when required
+
+The role invokes an external optimization script. It should not be treated as a task that always reports `ok` on a repeat run.
 
 ## ICMP / Ping Control
 
-`playbooks/operations/ping-control.yml` manages ICMP behavior independently from the main deployment.
+`playbooks/operations/ping-control.yml` manages ICMP behavior for `all` independently from the main deployment. Its default action is `allow`; operators can set `ping_action=block` when needed.
 
 ```bash
 ansible-playbook playbooks/operations/ping-control.yml
@@ -335,18 +357,27 @@ This is also intentionally excluded from `site.yml`.
 
 ---
 
-# Common Server Configuration
+# Role Responsibilities
 
-The `common` role handles baseline server configuration.
+The former `common` role was split into `cloudflare_dns`, `hostname`, `dns_resolver`, and `base_packages`. Each role now has one defined responsibility.
 
-Current responsibilities include:
+| Role | Responsibility |
+| --- | --- |
+| `ssh_security` | Install the managed SSH public key and enforce server SSH policy. |
+| `cloudflare_dns` | Manage the host's Cloudflare A record from inventory. |
+| `hostname` | Set the lowercase inventory name as the system hostname. |
+| `dns_resolver` | Configure systemd-resolved DNS and restart it when needed. |
+| `base_packages` | Install the baseline APT packages. |
+| `controller_ssh_config` | Maintain inventory-derived SSH shortcuts on the controller. |
+| `monitoring` | Install Node Exporter and generate inventory-driven Prometheus targets. |
+| `docker` | Install and start Docker Engine and its plugins. |
+| `pasarguard` | Install and configure the PasarGuard node. |
+| `pasarguard_watchdog` | Deploy the memory watchdog and schedule it with cron. |
+| `abuse_firewall` | Deploy selected-host firewall updates and a daily refresh job. |
+| `optimization` | Invoke the external optimization script. |
+| `security_updates` | Configure unattended security updates through its operational playbook. |
 
-- hostname configuration
-- DNS configuration
-- common package installation
-- runtime dependencies required by later roles
-
-The common package list includes tools such as:
+`base_packages` installs exactly:
 
 ```text
 btop
@@ -354,9 +385,21 @@ curl
 cron
 ```
 
-`cron` is installed as a baseline dependency because the watchdog role relies on the `crontab` executable.
+`cron` is a baseline dependency because the watchdog role uses the `crontab` executable.
 
-Managing this dependency in `common` ensures newly provisioned minimal Ubuntu servers can successfully complete watchdog configuration.
+The `base_packages` play runs before the watchdog play in `site.yml`.
+
+---
+
+# Controller SSH Shortcuts
+
+`controller_ssh_config` maintains SSH shortcuts in the SSH config under the Ansible controller user's `HOME`. It runs once on the controller. It renders every host in `groups['all'] | sort`, including hosts outside the current bootstrap target, so each inventory host appears once in a deterministic order.
+
+Aliases and DNS hostnames use lowercase inventory names. For example, inventory name `Node-01` produces the shortcut `ssh node-01` and a `HostName` of `node-01.<domain_suffix>`. The `User` entry comes from `hostvars[host].ansible_user`, falling back to `root` if it is undefined. The `ssh_ubuntu` inventory group supplies `ubuntu` for its members.
+
+The role owns one clearly marked block in the existing SSH config. It places that block after global directives and before the first `Host` or `Match` section so inventory-specific values can precede generic options such as `Host *`. It does not rewrite unrelated manual entries, `Include` directives, comments, or formatting. A manually defined alias that conflicts case-insensitively with an inventory alias causes a clear failure; the role does not overwrite it. It also rejects inventory names that would produce duplicate lowercase aliases.
+
+Adding or removing inventory hosts, or changing their `ansible_user`, updates only the managed block. Repeating the same run leaves it unchanged. The role does not manage private keys, `known_hosts`, or SSH server configuration.
 
 ---
 
@@ -445,7 +488,7 @@ Docker provisioning is applied to application nodes rather than every inventory 
 
 # Application Node Provisioning
 
-The application role handles node installation and configuration.
+The `pasarguard` role handles node installation and configuration.
 
 The workflow includes:
 
@@ -466,9 +509,7 @@ Sensitive installer output should be handled carefully because command output ca
 
 The `pasarguard_watchdog` role deploys a memory-watchdog script and schedules it through cron.
 
-Because minimal servers may not include `crontab` by default, the `common` role ensures `cron` is installed before the watchdog role is reached.
-
-This dependency was validated on fresh-server provisioning.
+Because minimal servers may not include `crontab` by default, `base_packages` installs `cron` before the watchdog role runs in `site.yml`.
 
 ---
 
@@ -492,6 +533,7 @@ The public example inventory demonstrates functional host grouping.
 
 Current groups include:
 
+- `all` — every inventory host; Ansible provides this group without an explicit `[all]` section
 - `pasarguard_nodes` — application nodes managed by the main deployment
 - `ssh_ubuntu` — hosts accessed through an `ubuntu` user with privilege escalation
 - `abuse_protected` — hosts receiving additional firewall protection
@@ -535,7 +577,7 @@ ansible-vault encrypt \
   inventory/group_vars/all/vault.yml
 ```
 
-Production Vault files and the Vault password file must not be committed.
+Production Vault files and Vault password files must not be committed. Keep API credentials and tokens in the ignored Vault data, never in tracked files.
 
 ---
 
@@ -550,7 +592,7 @@ inventory/hosts.example.ini
 inventory/group_vars/all/vault.yml.example
 ```
 
-Local production files are excluded through `.gitignore`.
+Local production inventory, Vault data, Vault password files, and SSH private-key patterns are excluded through `.gitignore`. Repository validation uses only sanitized example data. Production deployment and testing are manual, operator-controlled actions.
 
 Never commit:
 
@@ -567,120 +609,38 @@ Never commit:
 
 # Dependencies
 
-Install required Ansible collections:
+Use a Python virtual environment for local validation. Install the developer tools and the project's pinned Ansible Galaxy collections:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
 ansible-galaxy collection install -r requirements.yml
 ```
-
-The project currently pins required collections in `requirements.yml`.
 
 ---
 
 # Validation
 
-## Syntax Check
+Run the repository's safe local validation command:
 
 ```bash
-ansible-playbook playbooks/site.yml --syntax-check
+./scripts/validate.sh
 ```
 
-Operational playbooks can be checked individually:
+It checks Git diff formatting, shows repository status, runs `yamllint` and `ansible-lint`, syntax-checks every playbook, verifies the required operational playbooks, and rejects tracked production inventory or Vault files. Bootstrap syntax checking supplies a safe `bootstrap_host`. Ansible checks use an isolated copy of the example inventory and sanitized group variables, so ignored production files beside the example inventory are not loaded. The command does not contact production hosts.
 
-```bash
-ansible-playbook playbooks/operations/system-update.yml --syntax-check
-ansible-playbook playbooks/operations/security-updates.yml --syntax-check
-```
+A few existing task-specific ansible-lint findings are narrowly ignored to preserve production behavior. The existing Docker `apt_repository` deprecation warning is outside this documentation phase.
 
-## Inventory Validation
-
-```bash
-ansible-inventory --graph
-```
-
-Inspect a specific host:
-
-```bash
-ansible-inventory --host SERVER_NAME
-```
-
-## Connectivity
-
-```bash
-ansible all -m ansible.builtin.ping
-```
-
-Or one host:
-
-```bash
-ansible SERVER_NAME -m ansible.builtin.ping
-```
-
----
-
-# Tested Fresh-Server Workflow
-
-The following workflow has been validated against a newly provisioned password-only server:
-
-```text
-Initial site.yml attempt
-    ↓
-SSH public-key authentication unavailable
-    ↓
-bootstrap.yml
-    ↓
-SSH key installed
-SSH hardened
-    ↓
-site.yml --limit NEW_SERVER
-    ↓
-common configuration
-monitoring
-Docker
-application installation
-watchdog
-optional firewall stage
-    ↓
-successful deployment
-```
-
-The validated deployment confirmed:
-
-- bootstrap access works
-- SSH key installation works
-- SSH hardening remains idempotent
-- common packages install correctly
-- `cron` is available before watchdog scheduling
-- Node Exporter installs successfully
-- Prometheus target generation updates correctly
-- new servers appear in monitoring
-- Docker installs successfully
-- application provisioning completes
-- watchdog scheduling completes
-- group-specific firewall behavior is respected
+Production inventory validation, connectivity checks, and deployment testing remain operator-controlled. Do not use the repository's default inventory for local validation.
 
 ---
 
 # Reliability and Idempotency
 
-The project has been validated through:
+Repeated runs should normally report `ok` for already-correct SSH security, Cloudflare DNS records, hostname, resolver settings, baseline packages, controller SSH shortcuts, and monitoring target generation. Docker, PasarGuard installation and configuration, and watchdog deployment also use state checks where their implementation supports them.
 
-- syntax checks
-- inventory validation
-- connectivity checks
-- fresh-server bootstrap
-- full `site.yml` execution
-- repeated SSH-security execution with no unnecessary changes
-- monitoring target generation
-- Docker provisioning
-- watchdog scheduling
-- controlled system upgrades
-- reboot detection
-- unattended security-update rollout
-- selective group-based firewall execution
-- real password-login rejection testing
-
-The design goal is predictable, repeatable infrastructure management with minimal unnecessary changes on subsequent runs.
+Not every task is strongly idempotent. In particular, `optimization` runs an external script and may report a change on repeat runs. Local linting and syntax checks validate repository structure; the operator must check actual changes, access, DNS, monitoring, and reboot behavior in the production environment.
 
 ---
 
@@ -691,7 +651,7 @@ For a newly provisioned password-only server:
 ```bash
 # 1. Add the server to inventory
 
-# 2. Bootstrap SSH
+# 2. Bootstrap SSH, Cloudflare DNS, and controller SSH shortcuts
 ansible-playbook playbooks/bootstrap.yml \
   -e bootstrap_host=NEW_SERVER
 
@@ -703,7 +663,7 @@ ansible-playbook playbooks/site.yml \
 ansible-playbook playbooks/operations/security-updates.yml \
   --limit NEW_SERVER
 
-# 5. Apply optimization when explicitly desired
+# 5. Re-run optimization separately only when needed; site.yml already includes it
 ansible-playbook playbooks/operations/optimize.yml \
   --limit NEW_SERVER
 ```
@@ -752,12 +712,9 @@ This project demonstrates hands-on experience with:
 
 # Roadmap
 
-Planned improvements:
+Potential future improvements:
 
-- `ansible-lint`
-- `yamllint`
-- GitHub Actions CI
-- automated syntax validation
+- GitHub Actions CI using sanitized example inventory
 - secret scanning
 - stronger operational timeout handling
 - improved APT lock handling
