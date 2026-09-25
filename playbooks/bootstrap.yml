@@ -9,3 +9,4 @@
 
   roles:
     - ssh_security
+    - cloudflare_dns
