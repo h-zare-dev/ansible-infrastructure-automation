@@ -75,6 +75,7 @@ ansible-infrastructure-automation/
     ├── abuse_firewall/
     ├── base_packages/
     ├── cloudflare_dns/
+    ├── controller_known_hosts/
     ├── controller_ssh_config/
     ├── dns_resolver/
     ├── docker/
@@ -105,6 +106,7 @@ The correct onboarding sequence is:
 Fresh server
   → add host to inventory
   → bootstrap.yml
+      → controller_known_hosts (before remote fact gathering)
       → ssh_security
       → cloudflare_dns
       → controller_ssh_config
@@ -134,7 +136,9 @@ ansible-playbook playbooks/bootstrap.yml \
   -e bootstrap_host=node-01
 ```
 
-`bootstrap.yml` targets `bootstrap_host` and uses Vault-provided SSH and privilege-escalation passwords. Its role order is exactly `ssh_security`, `cloudflare_dns`, `controller_ssh_config`:
+`bootstrap.yml` targets `bootstrap_host`. Its first play disables fact gathering and runs `controller_known_hosts` entirely on localhost, before any SSH connection to the server. It uses `ssh-keygen -F` and `ssh-keygen -R` to remove only that target's entries from the controller user's `~/.ssh/known_hosts`, including hashed entries. It checks both `ansible_host` (falling back to the inventory hostname) and the inventory hostname, including its lowercase SSH alias. For a nonstandard `ansible_port`, it also checks `[hostname]:port` and `[IP]:port` entries. Missing files or matching entries require no changes.
+
+The remote play uses Vault-provided SSH and privilege-escalation passwords. Its role order remains `ssh_security`, `cloudflare_dns`, `controller_ssh_config`:
 
 - `ssh_security` installs the managed public key, applies SSH hardening, and restarts SSH when its configuration changes.
 - `cloudflare_dns` creates or updates the host's Cloudflare A record.
@@ -228,7 +232,7 @@ Full system upgrades, ICMP policy changes, and security-update policy rollout re
 
 ## `bootstrap.yml`
 
-First-time SSH, Cloudflare DNS, and controller SSH shortcut onboarding for a new server.
+SSH, Cloudflare DNS, and controller SSH shortcut onboarding for a new or rebuilt server. Bootstrap clears the selected target's controller host-key entries before connecting; `site.yml` does not run this cleanup.
 
 ```bash
 ansible-playbook playbooks/bootstrap.yml \

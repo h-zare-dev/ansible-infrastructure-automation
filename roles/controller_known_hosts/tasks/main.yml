@@ -1,0 +1,49 @@
+---
+- name: Remove bootstrap target host keys from the controller
+  delegate_to: localhost
+  become: false
+  vars:
+    controller_known_hosts_names:
+      - "{{ inventory_hostname }}"
+      - "{{ inventory_hostname | lower }}"
+      - "{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}"
+    controller_known_hosts_port: "{{ hostvars[inventory_hostname].ansible_port | default(22) }}"
+    controller_known_hosts_targets: >-
+      {{ (controller_known_hosts_names
+         + (controller_known_hosts_names | map('regex_replace', '^', '[')
+            | map('regex_replace', '$', ']:' ~ (controller_known_hosts_port | string)) | list
+            if controller_known_hosts_port | int != 22 else []))
+         | unique(case_sensitive=true) | list }}
+  block:
+    - name: Check whether controller known_hosts exists
+      ansible.builtin.stat:
+        path: "{{ controller_known_hosts_path }}"
+      register: controller_known_hosts_stat
+
+    - name: Find bootstrap target host keys including hashed entries
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -F
+          - "{{ item }}"
+          - -f
+          - "{{ controller_known_hosts_path }}"
+      loop: "{{ controller_known_hosts_targets }}"
+      register: controller_known_hosts_matches
+      changed_when: false
+      failed_when: controller_known_hosts_matches.rc not in [0, 1]
+      check_mode: false
+      when: controller_known_hosts_stat.stat.exists
+
+    - name: Remove matching bootstrap target host keys
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -R
+          - "{{ item.item }}"
+          - -f
+          - "{{ controller_known_hosts_path }}"
+      loop: "{{ controller_known_hosts_matches.results | selectattr('rc', 'defined') | selectattr('rc', 'equalto', 0) | list }}"
+      loop_control:
+        label: "{{ item.item }}"
+      changed_when: true

@@ -1,4 +1,10 @@
 ---
+- name: Reset bootstrap target SSH host keys on the controller
+  hosts: "{{ bootstrap_host }}"
+  gather_facts: false
+  roles:
+    - controller_known_hosts
+
 - name: Bootstrap SSH key authentication
   hosts: "{{ bootstrap_host }}"
   become: "{{ ansible_user != 'root' }}"
