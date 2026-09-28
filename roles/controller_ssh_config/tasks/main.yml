@@ -20,11 +20,24 @@
         path: "{{ controller_ssh_config_path }}"
       register: controller_ssh_config_stat
 
+    - name: Ensure controller SSH directory exists
+      ansible.builtin.file:
+        path: "{{ controller_ssh_config_path | dirname }}"
+        state: directory
+        mode: "0700"
+
+    - name: Ensure controller SSH config exists
+      ansible.builtin.copy:
+        dest: "{{ controller_ssh_config_path }}"
+        content: ""
+        force: false
+        mode: "0600"
+
     - name: Read existing controller SSH config
       ansible.builtin.slurp:
         src: "{{ controller_ssh_config_path }}"
       register: controller_ssh_config_existing
-      when: controller_ssh_config_stat.stat.exists
+      when: controller_ssh_config_stat.stat.exists or not ansible_check_mode
 
     - name: Check existing managed section markers
       ansible.builtin.assert:
@@ -61,17 +74,11 @@
         - controller_ssh_config_begin_marker in controller_ssh_config_existing_text
         - (controller_ssh_config_before_managed | regex_search('(?im)^[ \\t]*(?:Host|Match)[ \\t]+')) is not none
 
-    - name: Ensure controller SSH directory exists
-      ansible.builtin.file:
-        path: "{{ controller_ssh_config_path | dirname }}"
-        state: directory
-        mode: "0700"
-
     - name: Manage inventory SSH shortcuts
       ansible.builtin.blockinfile:
         path: "{{ controller_ssh_config_path }}"
-        create: true
         mode: "0600"
         marker: "# {mark} {{ controller_ssh_config_marker }}"
         insertbefore: '(?im)^[ \t]*(?:Host|Match)[ \t]+'
         block: "{{ lookup('ansible.builtin.template', 'hosts.j2') }}"
+      when: controller_ssh_config_stat.stat.exists or not ansible_check_mode

@@ -1,52 +1,24 @@
 ---
-- name: Secure SSH access
+- name: Configure managed servers
   hosts: all
   become: true
+  gather_facts: true
   roles:
     - ssh_security
-
-- name: Apply essential setup
-  hosts: all
-  become: true
-  roles:
+    - controller_ssh_config
     - cloudflare_dns
     - hostname
     - dns_resolver
     - base_packages
-    - controller_ssh_config
-
-- name: Configure monitoring
-  hosts: all
-  become: true
-  roles:
     - monitoring
 
-- name: Setup Docker Engine
+- name: Configure PasarGuard nodes
   hosts: pasarguard_nodes
   become: true
+  gather_facts: false
   roles:
     - docker
-
-- name: Install PasarGuard
-  hosts: pasarguard_nodes
-  become: true
-  roles:
     - pasarguard
-
-- name: Configure PasarGuard memory watchdog
-  hosts: pasarguard_nodes
-  become: true
-  roles:
     - pasarguard_watchdog
-
-- name: Apply Abuse-Defender firewall rules
-  hosts: abuse_protected
-  become: true
-  roles:
-    - abuse_firewall
-
-- name: Optimize managed nodes
-  hosts: pasarguard_nodes
-  become: true
-  roles:
-    - optimization
+    - role: abuse_firewall
+      when: "'abuse_protected' in group_names"
