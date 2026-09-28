@@ -27,6 +27,15 @@
   when:
     - pg_protocol.changed or pg_install.changed
 
+- name: Ensure PasarGuard certificate destination directory exists
+  ansible.builtin.file:
+    path: "{{ pasarguard_cert_destination_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
 - name: Fetch PasarGuard SSL certificate to controller
   ansible.builtin.fetch:
     src: "{{ pasarguard_cert_path }}"
