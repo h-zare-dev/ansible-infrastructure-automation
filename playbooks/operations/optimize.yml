@@ -1,6 +1,7 @@
 ---
 - name: Run ServerTools OS Performance Tuning
-  hosts: all
-  become: yes
+  hosts: pasarguard_nodes
+  become: true
+  gather_facts: false
   roles:
     - optimization
