@@ -15,6 +15,11 @@
           - (groups['all'] | map('lower') | unique | list | length) == (groups['all'] | length)
         fail_msg: Inventory host names produce duplicate lowercase SSH aliases.
 
+    - name: Check whether controller SSH config exists
+      ansible.builtin.stat:
+        path: "{{ controller_ssh_config_path }}"
+      register: controller_ssh_config_stat
+
     - name: Ensure controller SSH directory exists
       ansible.builtin.file:
         path: "{{ controller_ssh_config_path | dirname }}"
@@ -32,6 +37,7 @@
       ansible.builtin.slurp:
         src: "{{ controller_ssh_config_path }}"
       register: controller_ssh_config_existing
+      when: controller_ssh_config_stat.stat.exists or not ansible_check_mode
 
     - name: Check existing managed section markers
       ansible.builtin.assert:
@@ -75,3 +81,4 @@
         marker: "# {mark} {{ controller_ssh_config_marker }}"
         insertbefore: '(?im)^[ \t]*(?:Host|Match)[ \t]+'
         block: "{{ lookup('ansible.builtin.template', 'hosts.j2') }}"
+      when: controller_ssh_config_stat.stat.exists or not ansible_check_mode
