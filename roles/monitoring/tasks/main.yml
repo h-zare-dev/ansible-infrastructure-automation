@@ -2,7 +2,6 @@
 - name: Install Prometheus Node Exporter
   ansible.builtin.apt:
     name: "{{ monitoring_node_exporter_package }}"
-    update_cache: true
     state: present
   tags:
     - monitoring
