@@ -72,7 +72,7 @@ Production deployment and validation are performed manually by the operator.
 - `bootstrap.yml` is used for initial server onboarding.
 - `site.yml` is the main desired-state playbook.
 - SSH hardening remains reusable and idempotent.
-- Optimization is part of `site.yml` and also has an independent operational playbook.
+- Optimization runs only through `playbooks/operations/optimize.yml`, targeting `pasarguard_nodes`; it is not part of `site.yml`.
 - `security-updates.yml` remains an independent operational playbook.
 - `system-update.yml` remains an independent operational playbook.
 - `ping-control.yml` remains an independent operational playbook.
