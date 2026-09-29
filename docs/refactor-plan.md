@@ -1,5 +1,7 @@
 # Refactor Plan
 
+Historical plan for the completed refactor. The branch names and phase instructions below record the original workflow; the current default branch is `development`, with feature PRs targeting it and a later PR from `development` to `main`. Current playbook behavior is documented in the README.
+
 ## Goal
 
 Refactor the Ansible repository into a cleaner, single-responsibility structure while preserving existing production behavior.
@@ -157,19 +159,11 @@ bootstrap.yml
 ```
 
 ```text
-site.yml
-├── ssh_security
-├── cloudflare_dns
-├── hostname
-├── dns_resolver
-├── base_packages
-├── controller_ssh_config
-├── monitoring
-├── docker
-├── pasarguard
-├── pasarguard_watchdog
-├── abuse_firewall
-└── optimization
+site.yml (current implementation)
+├── all: ssh_security, controller_ssh_config, cloudflare_dns,
+│   hostname, dns_resolver, base_packages, monitoring
+└── pasarguard_nodes: docker, pasarguard, pasarguard_watchdog,
+    abuse_firewall (only for abuse_protected members)
 ```
 
 Expected commit:
@@ -194,8 +188,7 @@ playbooks/operations/
 
 Behavioral requirements:
 
-- `optimization` remains in `site.yml`.
-- `optimize.yml` remains independently executable.
+- `optimization` runs only through the independently executable `optimize.yml`, targeting `pasarguard_nodes`.
 - `security-updates.yml` remains independent.
 - `system-update.yml` remains independent.
 - `ping-control.yml` remains independent.
