@@ -1,5 +1,5 @@
 ---
-- name: Create DNS A record in Cloudflare automatically
+- name: Ensure unique DNS A record in Cloudflare
   delegate_to: localhost
   become: false
   community.general.cloudflare_dns:
@@ -9,5 +9,6 @@
     value: "{{ ansible_host }}"
     api_token: "{{ cf_api_token }}"
     proxied: false
+    solo: true
   tags:
     - dns
