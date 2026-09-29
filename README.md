@@ -9,7 +9,7 @@ The project is designed around two distinct workflows:
 1. **Initial server onboarding** — establish SSH access, create a Cloudflare DNS record, and update controller SSH shortcuts.
 2. **Ongoing desired-state management** — repeatedly apply configuration safely and idempotently.
 
-System upgrades, security update policy, and ICMP control remain independent operations. Optimization runs in the main deployment and also has an independent playbook.
+System upgrades, security update policy, ICMP control, and optimization are explicit independent operations.
 
 ---
 
@@ -190,24 +190,12 @@ This supports both cases:
 
 ## `site.yml`
 
-`site.yml` is the primary desired-state configuration entry point.
+`site.yml` is the primary desired-state configuration entry point. It has two logical plays with separate, single-responsibility roles:
 
-Its roles run in this order, across separate plays with different targets:
+1. **All managed servers** — gathers facts once, then runs `ssh_security`, `controller_ssh_config`, `cloudflare_dns`, `hostname`, `dns_resolver`, `base_packages`, and `monitoring` in that order. Controller SSH shortcuts and monitoring targets are generated on the controller.
+2. **`pasarguard_nodes`** — sets `gather_facts: false` and runs `docker`, `pasarguard`, and `pasarguard_watchdog`, followed by `abuse_firewall` only for hosts also in `abuse_protected`.
 
-1. `ssh_security` — `all`
-2. `cloudflare_dns` — `all`
-3. `hostname` — `all`
-4. `dns_resolver` — `all`
-5. `base_packages` — `all`
-6. `controller_ssh_config` — an `all` play; runs once on the controller
-7. `monitoring` — `all`, with target generation on the controller
-8. `docker` — `pasarguard_nodes`
-9. `pasarguard` — `pasarguard_nodes`
-10. `pasarguard_watchdog` — `pasarguard_nodes`
-11. `abuse_firewall` — `abuse_protected`
-12. `optimization` — `pasarguard_nodes`
-
-An inventory host runs only the plays whose host groups include it. `all` includes inventory hosts without requiring an explicit `[all]` section.
+An inventory host runs only the plays whose host groups include it. `all` includes inventory hosts without requiring an explicit `[all]` section. DNS resolver configuration belongs to `dns_resolver`; the standalone ServerTools optimization does not manage DNS.
 
 Run on all applicable managed hosts:
 
@@ -222,9 +210,7 @@ ansible-playbook playbooks/site.yml \
   --limit SERVER_NAME
 ```
 
-The main deployment includes system optimization as part of the normal desired state for managed application nodes.
-
-Full system upgrades, ICMP policy changes, and security-update policy rollout remain separate operational actions.
+Optimization, full system upgrades, ICMP policy changes, and security-update policy rollout remain separate operational actions.
 
 ---
 
@@ -255,7 +241,7 @@ Useful when SSH policy needs to be enforced without running unrelated roles.
 
 # Operational Playbooks
 
-System upgrades, security-update policy, and ping control are independent of `site.yml`. Optimization also has an independent entry point while remaining in `site.yml` for application nodes.
+System upgrades, security-update policy, ping control, and optimization are independent of `site.yml`.
 
 ```text
 playbooks/operations/
@@ -265,7 +251,7 @@ playbooks/operations/
 └── system-update.yml
 ```
 
-Keeping system upgrades and security-update policy rollout separate avoids adding them to ordinary configuration runs.
+Keeping these operations separate avoids adding them to ordinary configuration runs.
 
 ## Controlled System Updates
 
@@ -334,20 +320,13 @@ This playbook is intentionally separate from `site.yml`.
 
 ## Optimization
 
-The optimization role is part of the normal `site.yml` deployment for managed application nodes.
-
-A dedicated operational playbook targets `all`, so optimization can also be executed independently without running the full site deployment.
+Optimization is run only through `playbooks/operations/optimize.yml`, which targets `pasarguard_nodes`. It is not applied by `site.yml`.
 
 ```bash
 ansible-playbook playbooks/operations/optimize.yml
 ```
 
-This allows both:
-
-- automatic optimization during normal provisioning
-- explicit re-application of optimization when required
-
-The role invokes an external optimization script. It should not be treated as a task that always reports `ok` on a repeat run.
+Run it explicitly when required, optionally with `--limit SERVER_NAME`. The role invokes an external ServerTools optimization script and does not manage DNS; `dns_resolver` owns that configuration. It should not be treated as a task that always reports `ok` on a repeat run.
 
 ## ICMP / Ping Control
 
@@ -391,7 +370,7 @@ cron
 
 `cron` is a baseline dependency because the watchdog role uses the `crontab` executable.
 
-The `base_packages` play runs before the watchdog play in `site.yml`.
+The first `site.yml` play runs `base_packages` before the watchdog role in the second play.
 
 ---
 
@@ -401,7 +380,7 @@ The `base_packages` play runs before the watchdog play in `site.yml`.
 
 Aliases and DNS hostnames use lowercase inventory names. For example, inventory name `Node-01` produces the shortcut `ssh node-01` and a `HostName` of `node-01.<domain_suffix>`. The `User` entry comes from `hostvars[host].ansible_user`, falling back to `root` if it is undefined. The `ssh_ubuntu` inventory group supplies `ubuntu` for its members.
 
-The role owns one clearly marked block in the existing SSH config. It places that block after global directives and before the first `Host` or `Match` section so inventory-specific values can precede generic options such as `Host *`. It does not rewrite unrelated manual entries, `Include` directives, comments, or formatting. A manually defined alias that conflicts case-insensitively with an inventory alias causes a clear failure; the role does not overwrite it. It also rejects inventory names that would produce duplicate lowercase aliases.
+The role safely handles a missing SSH config in both normal and check-mode runs. A normal run creates the file before reading and managing it; check mode validates the missing-file case without requiring the file to be written. It owns one clearly marked block in the config, placing it after global directives and before the first `Host` or `Match` section so inventory-specific values can precede generic options such as `Host *`. It does not rewrite unrelated manual entries, `Include` directives, comments, or formatting. A manually defined alias that conflicts case-insensitively with an inventory alias causes a clear failure; the role does not overwrite it. It also rejects inventory names that would produce duplicate lowercase aliases.
 
 Adding or removing inventory hosts, or changing their `ansible_user`, updates only the managed block. Repeating the same run leaves it unchanged. The role does not manage private keys, `known_hosts`, or SSH server configuration.
 
@@ -417,13 +396,13 @@ This keeps monitoring discovery aligned with infrastructure state rather than re
 
 ## Prometheus Target Path
 
-The generated target file is stored on the controller at:
+By default, the generated target file is stored on the controller at:
 
 ```text
 /opt/monitoring/targets/targets.json
 ```
 
-The monitoring role ensures that the parent directory exists before generating the file.
+The monitoring role ensures that the parent directory exists before generating the file. Set `monitoring_targets_dir` in normal group vars to change the controller output directory; the filename remains `targets.json`.
 
 Example directory structure:
 
@@ -503,6 +482,8 @@ The workflow includes:
 - service restart when configuration changes
 - SSL certificate retrieval to the controller
 
+The controller-side certificate destination is configured independently through `pasarguard_cert_destination_dir` in normal group vars (default: `/opt/pasarguard/certs`). Certificates do not need to be stored under `/opt/monitoring`.
+
 The installation task uses Ansible state checks to avoid unnecessary repeated installations.
 
 Sensitive installer output should be handled carefully because command output can expose credentials if logging is enabled.
@@ -525,7 +506,7 @@ Firewall rules are applied only to hosts in the dedicated inventory group:
 abuse_protected
 ```
 
-If a host does not belong to that group, the firewall play is skipped.
+In the second `site.yml` play, `abuse_firewall` runs after Docker, PasarGuard, and the watchdog only when a `pasarguard_nodes` host also belongs to that group.
 
 This allows security controls to be enabled selectively without applying the same network policy to every managed node.
 
@@ -642,9 +623,9 @@ Production inventory validation, connectivity checks, and deployment testing rem
 
 # Reliability and Idempotency
 
-Repeated runs should normally report `ok` for already-correct SSH security, Cloudflare DNS records, hostname, resolver settings, baseline packages, controller SSH shortcuts, and monitoring target generation. Docker, PasarGuard installation and configuration, and watchdog deployment also use state checks where their implementation supports them.
+Repeated runs should normally report `ok` for already-correct SSH security, Cloudflare DNS records, hostname, resolver settings, baseline packages, controller SSH shortcuts, and monitoring target generation. Ubuntu SSH-user detection is safe in Ansible check mode. Docker, PasarGuard installation and configuration, and watchdog deployment also use state checks where their implementation supports them.
 
-Not every task is strongly idempotent. In particular, `optimization` runs an external script and may report a change on repeat runs. Local linting and syntax checks validate repository structure; the operator must check actual changes, access, DNS, monitoring, and reboot behavior in the production environment.
+Not every task is strongly idempotent. The standalone `optimization` operation runs an external script and may report a change on repeat runs. Local linting and syntax checks validate repository structure; the operator must check actual changes, access, DNS, monitoring, and reboot behavior in the production environment.
 
 ---
 
@@ -667,7 +648,7 @@ ansible-playbook playbooks/site.yml \
 ansible-playbook playbooks/operations/security-updates.yml \
   --limit NEW_SERVER
 
-# 5. Re-run optimization separately only when needed; site.yml already includes it
+# 5. Run standalone optimization explicitly if needed
 ansible-playbook playbooks/operations/optimize.yml \
   --limit NEW_SERVER
 ```
@@ -745,7 +726,7 @@ Normal playbooks should be safe to execute repeatedly.
 
 ### Operational maintenance is explicit
 
-System optimization is part of the normal desired state, while system upgrades and other maintenance operations remain explicit and separate.
+System optimization, system upgrades, and other maintenance operations are explicit and separate from `site.yml`.
 
 ### Reboots are controlled
 
