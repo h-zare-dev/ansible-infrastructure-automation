@@ -1,0 +1,4 @@
+---
+floatip_manager_ref: "ac7c1c87e2e4def7ab12124a4d58119e4ccc8005"
+floatip_manager_url: "https://raw.githubusercontent.com/h-zare-dev/floatip-manager/{{ floatip_manager_ref }}/floatip"
+floatip_manager_path: "/usr/local/sbin/floatip"
