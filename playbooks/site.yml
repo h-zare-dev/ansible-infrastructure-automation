@@ -10,6 +10,7 @@
     - hostname
     - dns_resolver
     - base_packages
+    - floatip_manager
     - monitoring
 
 - name: Configure PasarGuard nodes
