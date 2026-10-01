@@ -1,0 +1,27 @@
+---
+- name: Update APT package cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Upgrade installed packages
+  ansible.builtin.apt:
+    upgrade: dist
+
+- name: Remove unused dependencies
+  ansible.builtin.apt:
+    autoremove: true
+    purge: true
+
+- name: Clean obsolete package files
+  ansible.builtin.apt:
+    autoclean: true
+
+- name: Check whether reboot is required
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: system_update_reboot_required
+
+- name: Record Debian reboot requirement
+  ansible.builtin.set_fact:
+    system_update_reboot_needed: "{{ system_update_reboot_required.stat.exists }}"

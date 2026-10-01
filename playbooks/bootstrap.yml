@@ -5,15 +5,17 @@
   roles:
     - controller_known_hosts
 
-- name: Bootstrap SSH key authentication
+- name: Bootstrap server
   hosts: "{{ bootstrap_host }}"
   become: "{{ ansible_user != 'root' }}"
 
   vars:
     ansible_password: "{{ vault_ansible_password }}"
     ansible_become_pass: "{{ vault_ansible_become_pass }}"
+    system_update_reboot: true
 
   roles:
+    - system_update
     - ssh_security
     - cloudflare_dns
     - controller_ssh_config
