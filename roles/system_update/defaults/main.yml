@@ -1,0 +1,5 @@
+---
+system_update_reboot: false
+system_update_reboot_timeout: 600
+system_update_connect_timeout: 10
+system_update_post_reboot_delay: 10

@@ -1,0 +1,29 @@
+---
+- name: Upgrade installed packages on RedHat-family systems
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+    update_cache: true
+  register: system_update_redhat_upgrade
+
+- name: Check whether needs-restarting is available
+  ansible.builtin.stat:
+    path: /usr/bin/needs-restarting
+  register: system_update_needs_restarting
+
+- name: Check whether RedHat-family system requires reboot
+  ansible.builtin.command:
+    cmd: /usr/bin/needs-restarting -r
+  register: system_update_redhat_reboot_check
+  changed_when: false
+  failed_when: system_update_redhat_reboot_check.rc not in [0, 1]
+  when: system_update_needs_restarting.stat.exists
+
+- name: Record RedHat-family reboot requirement
+  ansible.builtin.set_fact:
+    system_update_reboot_needed: >-
+      {{
+        (system_update_redhat_reboot_check.rc == 1)
+        if system_update_needs_restarting.stat.exists
+        else system_update_redhat_upgrade.changed
+      }}
