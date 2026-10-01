@@ -16,6 +16,7 @@
 
   roles:
     - system_update
+    - floatip_manager
     - ssh_security
     - cloudflare_dns
     - controller_ssh_config
