@@ -1,0 +1,9 @@
+---
+- name: Install pinned floatip-manager command on Hetzner hosts
+  ansible.builtin.get_url:
+    url: "{{ floatip_manager_url }}"
+    dest: "{{ floatip_manager_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: "'hetzner' in (ansible_facts.system_vendor | default('') | lower)"
