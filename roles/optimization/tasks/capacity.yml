@@ -1,0 +1,116 @@
+---
+- name: Select RAM-aware optimization tier
+  ansible.builtin.set_fact:
+    optimization_tier_name: >-
+      {{
+        'S' if (ansible_facts['memtotal_mb'] | int) <=
+               (optimization_tiers['S']['ram_max_mb'] | int)
+        else 'M' if (ansible_facts['memtotal_mb'] | int) <=
+                    (optimization_tiers['M']['ram_max_mb'] | int)
+        else 'L' if (ansible_facts['memtotal_mb'] | int) <=
+                    (optimization_tiers['L']['ram_max_mb'] | int)
+        else 'XL'
+      }}
+
+- name: Load selected tier values
+  ansible.builtin.set_fact:
+    optimization_tier: "{{ optimization_tiers[optimization_tier_name] }}"
+
+- name: Calculate workload-aware conntrack target
+  ansible.builtin.set_fact:
+    optimization_conntrack_workload_target: >-
+      {{
+        [
+          4194304,
+          [
+            65536,
+            ((optimization_expected_users | int) * 36)
+          ] | max
+        ] | min
+        if (optimization_expected_users | int) > 0
+        else (optimization_tier['conntrack_max'] | int)
+      }}
+
+- name: Calculate safe scalar ceilings
+  ansible.builtin.set_fact:
+    optimization_somaxconn: >-
+      {{ [optimization_live_sysctl['net.core.somaxconn'] | int,
+          optimization_tier['somaxconn'] | int] | max }}
+    optimization_tcp_max_syn_backlog: >-
+      {{ [optimization_live_sysctl['net.ipv4.tcp_max_syn_backlog'] | int,
+          optimization_tier['somaxconn'] | int] | max }}
+    optimization_netdev_backlog: >-
+      {{ [optimization_live_sysctl['net.core.netdev_max_backlog'] | int,
+          optimization_tier['netdev_backlog'] | int] | max }}
+    optimization_rmem_max: >-
+      {{ [optimization_live_sysctl['net.core.rmem_max'] | int,
+          optimization_tier['buffer_bytes'] | int] | max }}
+    optimization_wmem_max: >-
+      {{ [optimization_live_sysctl['net.core.wmem_max'] | int,
+          optimization_tier['buffer_bytes'] | int] | max }}
+    optimization_rmem_default: >-
+      {{ [optimization_live_sysctl['net.core.rmem_default'] | int, 262144] | max }}
+    optimization_wmem_default: >-
+      {{ [optimization_live_sysctl['net.core.wmem_default'] | int, 262144] | max }}
+    optimization_optmem_max: >-
+      {{ [optimization_live_sysctl['net.core.optmem_max'] | int, 131072] | max }}
+    optimization_conntrack_max: >-
+      {{ [optimization_live_sysctl['net.netfilter.nf_conntrack_max'] | int,
+          optimization_conntrack_workload_target | int] | max }}
+    optimization_file_max: >-
+      {{ [optimization_live_sysctl['fs.file-max'] | int, 2097152] | max }}
+    optimization_nr_open: >-
+      {{ [optimization_live_sysctl['fs.nr_open'] | int, 2097152] | max }}
+    optimization_max_map_count: >-
+      {{ [optimization_live_sysctl['vm.max_map_count'] | int, 262144] | max }}
+    optimization_tcp_min_snd_mss: >-
+      {{ [optimization_live_sysctl['net.ipv4.tcp_min_snd_mss'] | int, 512] | max }}
+
+- name: Calculate conntrack hash bucket ceiling
+  ansible.builtin.set_fact:
+    optimization_conntrack_buckets: >-
+      {{
+        [
+          optimization_live_sysctl['net.netfilter.nf_conntrack_buckets'] | int,
+          [262144, (optimization_conntrack_max | int) // 4] | min
+        ] | max
+      }}
+
+- name: Calculate non-regressive TCP buffer triples
+  ansible.builtin.set_fact:
+    optimization_tcp_rmem: >-
+      {{
+        [
+          [optimization_tcp_rmem_live[0] | int, 4096] | max,
+          [optimization_tcp_rmem_live[1] | int, 87380] | max,
+          [optimization_tcp_rmem_live[2] | int, optimization_rmem_max | int] | max
+        ]
+      }}
+    optimization_tcp_wmem: >-
+      {{
+        [
+          [optimization_tcp_wmem_live[0] | int, 4096] | max,
+          [optimization_tcp_wmem_live[1] | int, 65536] | max,
+          [optimization_tcp_wmem_live[2] | int, optimization_wmem_max | int] | max
+        ]
+      }}
+
+- name: Estimate conntrack memory pressure for expected users
+  ansible.builtin.set_fact:
+    optimization_conntrack_ram_mb: "{{ (optimization_conntrack_max | int) * 300 // 1048576 }}"
+    optimization_proxy_ram_mb: "{{ (optimization_expected_users | int) // 2 }}"
+  when: (optimization_expected_users | int) > 0
+
+- name: Warn when expected user capacity is too aggressive for available RAM
+  ansible.builtin.debug:
+    msg: >-
+      Expected user capacity may be too aggressive for this host:
+      estimated conntrack + proxy working memory is about
+      {{ (optimization_conntrack_ram_mb | int) + (optimization_proxy_ram_mb | int) }} MB
+      versus {{ ansible_facts['memtotal_mb'] }} MB RAM.
+      Split load across nodes or add RAM before relying on this peak capacity.
+  when:
+    - (optimization_expected_users | int) > 0
+    - >-
+      ((optimization_conntrack_ram_mb | int) + (optimization_proxy_ram_mb | int))
+      > ((ansible_facts['memtotal_mb'] | int) * 3 // 4)

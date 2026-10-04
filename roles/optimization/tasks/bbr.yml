@@ -1,0 +1,89 @@
+---
+- name: Probe BBR module
+  ansible.builtin.command:
+    argv:
+      - modprobe
+      - tcp_bbr
+  register: optimization_modprobe_bbr
+  changed_when: false
+  failed_when: false
+
+- name: Probe fq qdisc module
+  ansible.builtin.command:
+    argv:
+      - modprobe
+      - sch_fq
+  register: optimization_modprobe_fq
+  changed_when: false
+  failed_when: false
+
+- name: Probe fq_codel qdisc module
+  ansible.builtin.command:
+    argv:
+      - modprobe
+      - sch_fq_codel
+  register: optimization_modprobe_fq_codel
+  changed_when: false
+  failed_when: false
+
+- name: Read available TCP congestion controls
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - -n
+      - net.ipv4.tcp_available_congestion_control
+  register: optimization_available_cc
+  changed_when: false
+
+- name: Read current TCP congestion control
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - -n
+      - net.ipv4.tcp_congestion_control
+  register: optimization_current_cc
+  changed_when: false
+
+- name: Read current default qdisc
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - -n
+      - net.core.default_qdisc
+  register: optimization_current_qdisc
+  changed_when: false
+
+- name: Select supported congestion control and qdisc
+  ansible.builtin.set_fact:
+    optimization_congestion_control: >-
+      {{
+        'bbr'
+        if optimization_modprobe_bbr.rc == 0
+        and 'bbr' in optimization_available_cc.stdout.split()
+        else 'cubic'
+        if 'cubic' in optimization_available_cc.stdout.split()
+        else (optimization_current_cc.stdout | trim)
+      }}
+    optimization_default_qdisc: >-
+      {{
+        'fq'
+        if optimization_modprobe_bbr.rc == 0
+        and optimization_modprobe_fq.rc == 0
+        and 'bbr' in optimization_available_cc.stdout.split()
+        else 'fq_codel'
+        if optimization_modprobe_fq_codel.rc == 0
+        else (optimization_current_qdisc.stdout | trim)
+      }}
+
+- name: Persist required kernel modules
+  ansible.builtin.copy:
+    dest: "{{ optimization_modules_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible: native VPN optimization
+      nf_conntrack
+      {% if optimization_congestion_control == "bbr" %}
+      tcp_bbr
+      {% endif %}

@@ -1,0 +1,72 @@
+---
+- name: Read current conntrack usage
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - -n
+      - net.netfilter.nf_conntrack_count
+  register: optimization_conntrack_count
+  changed_when: false
+  failed_when: false
+
+- name: Capture network counters after tuning
+  ansible.builtin.shell: |
+    set -o pipefail
+    tcp_values="$(
+      awk '
+        /^Tcp:/ {
+          if (!header_seen) {
+            for (i=1; i<=NF; i++) idx[$i]=i
+            header_seen=1
+            next
+          }
+          print $(idx["RetransSegs"]), $(idx["InSegs"]), $(idx["OutSegs"])
+          exit
+        }
+      ' /proc/net/snmp
+    )"
+    drops="$(
+      awk 'NR > 2 {rx += $5; tx += $12} END {print rx + tx + 0}' /proc/net/dev
+    )"
+    printf '%s %s\n' "$tcp_values" "$drops"
+  args:
+    executable: /bin/bash
+  register: optimization_network_counters_after
+  changed_when: false
+  failed_when: false
+
+- name: Calculate network counter deltas
+  ansible.builtin.set_fact:
+    optimization_network_counter_delta: >-
+      {{
+        [
+          (optimization_network_counters_after.stdout.split()[0] | int) -
+          (optimization_network_counters_before.stdout.split()[0] | int),
+          (
+            (optimization_network_counters_after.stdout.split()[1] | int) +
+            (optimization_network_counters_after.stdout.split()[2] | int)
+          ) -
+          (
+            (optimization_network_counters_before.stdout.split()[1] | int) +
+            (optimization_network_counters_before.stdout.split()[2] | int)
+          ),
+          (optimization_network_counters_after.stdout.split()[3] | int) -
+          (optimization_network_counters_before.stdout.split()[3] | int)
+        ]
+      }}
+  when:
+    - optimization_network_counters_before.rc == 0
+    - optimization_network_counters_after.rc == 0
+    - optimization_network_counters_before.stdout.split() | length == 4
+    - optimization_network_counters_after.stdout.split() | length == 4
+
+- name: Show native VPN optimization summary
+  ansible.builtin.debug:
+    msg:
+      - "profile={{ optimization_profile }} tier={{ optimization_tier_name }} ram={{ ansible_facts['memtotal_mb'] }}MB"
+      - "interface={{ optimization_default_iface }} congestion={{ optimization_congestion_control }} default_qdisc={{ optimization_default_qdisc }}"
+      - "buffers={{ optimization_rmem_max }}/{{ optimization_wmem_max }} conntrack={{ optimization_conntrack_count.stdout | default('n/a') | trim }}/{{ optimization_conntrack_max }}"
+      - "somaxconn={{ optimization_somaxconn }} backlog={{ optimization_netdev_backlog }} nofile={{ optimization_nofile_limit if optimization_manage_limits else 'unmanaged' }}"
+      - "reserved_ports={{ optimization_reserved_ports_value | default('none') }}"
+      - "counter_delta(retrans,total_tcp_segments,iface_drops)={{ optimization_network_counter_delta | default('n/a') }}"
+      - "live_qdisc_changed={{ optimization_live_qdisc_replace | bool }} DNS/MTU/firewall/Docker restart=untouched"

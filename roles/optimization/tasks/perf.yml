@@ -1,0 +1,32 @@
+---
+- name: Deploy native CPU and NIC tuning script
+  ansible.builtin.template:
+    src: perf-boot.sh.j2
+    dest: "{{ optimization_perf_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+  register: optimization_perf_script_result
+
+- name: Deploy native CPU and NIC tuning service
+  ansible.builtin.template:
+    src: perf.service.j2
+    dest: "{{ optimization_perf_unit }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: optimization_perf_unit_result
+
+- name: Enable native CPU and NIC tuning service
+  ansible.builtin.systemd:
+    name: vpn-network-perf.service
+    enabled: true
+    daemon_reload: true
+
+- name: Apply CPU and NIC tuning after configuration changes
+  ansible.builtin.command:
+    argv:
+      - "{{ optimization_perf_script }}"
+  when:
+    - optimization_perf_script_result.changed or optimization_perf_unit_result.changed
+  changed_when: true

@@ -1,10 +1,41 @@
 ---
-- name: Download and execute ServerTools auto-optimization
-  ansible.builtin.shell: >
-    curl -sL https://raw.githubusercontent.com/Sir-Adnan/server-tools/main/dist/server-tools.sh | bash -s --
-    --auto
-    --profile vpn-node
-  args:
-    executable: /bin/bash
-  register: optimize_result
-  failed_when: optimize_result.rc not in [0, 3]
+- name: Run optimization preflight checks
+  ansible.builtin.include_tasks: preflight.yml
+
+- name: Calculate safe host capacity
+  ansible.builtin.include_tasks: capacity.yml
+
+- name: Prepare BBR and conntrack kernel modules
+  ansible.builtin.include_tasks: bbr.yml
+
+- name: Apply native VPN sysctl tuning
+  ansible.builtin.include_tasks: sysctl.yml
+
+- name: Apply file descriptor limits
+  ansible.builtin.include_tasks: limits.yml
+  when: optimization_manage_limits | bool
+
+- name: Apply CPU and NIC data-path tuning
+  ansible.builtin.include_tasks: perf.yml
+  when: optimization_manage_perf | bool
+
+- name: Apply host hygiene settings
+  ansible.builtin.include_tasks: hygiene.yml
+
+- name: Flush optimization handlers before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify native tuning before retiring legacy ServerTools files
+  ansible.builtin.include_tasks: verify.yml
+
+- name: Retire conflicting ServerTools-managed files
+  ansible.builtin.include_tasks: migrate_servertools.yml
+
+- name: Flush migration handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify final optimization state
+  ansible.builtin.include_tasks: verify.yml
+
+- name: Show optimization report
+  ansible.builtin.include_tasks: report.yml

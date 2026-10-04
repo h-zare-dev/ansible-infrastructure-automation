@@ -1,0 +1,53 @@
+---
+optimization_profile: "vpn-node"
+optimization_expected_users: 0
+
+optimization_live_qdisc_replace: false
+optimization_manage_limits: true
+optimization_manage_perf: true
+optimization_manage_journald: true
+optimization_manage_ntp: true
+
+optimization_rps_mode: "auto"
+optimization_cpu_governor: "preserve"
+optimization_thp_mode: "preserve"
+
+optimization_nofile_limit: 1048576
+optimization_journald_system_max_use: "100M"
+optimization_journald_runtime_max_use: "50M"
+
+optimization_sysctl_file: "/etc/sysctl.d/99-vpn-network-tuning.conf"
+optimization_modules_file: "/etc/modules-load.d/99-vpn-network-tuning.conf"
+optimization_limits_file: "/etc/security/limits.d/99-vpn-network-tuning.conf"
+optimization_systemd_limits_file: "/etc/systemd/system.conf.d/99-vpn-network-tuning.conf"
+optimization_journald_file: "/etc/systemd/journald.conf.d/99-vpn-network-tuning.conf"
+optimization_perf_script: "/usr/local/sbin/vpn-network-perf"
+optimization_perf_unit: "/etc/systemd/system/vpn-network-perf.service"
+
+optimization_reserved_ports: []
+
+optimization_tiers:
+  S:
+    ram_max_mb: 1536
+    somaxconn: 8192
+    netdev_backlog: 16384
+    buffer_bytes: 8388608
+    conntrack_max: 65536
+  M:
+    ram_max_mb: 6144
+    somaxconn: 16384
+    netdev_backlog: 32768
+    buffer_bytes: 16777216
+    conntrack_max: 262144
+  L:
+    ram_max_mb: 24576
+    somaxconn: 32768
+    netdev_backlog: 65536
+    buffer_bytes: 33554432
+    conntrack_max: 1048576
+  XL:
+    ram_max_mb: 0
+    somaxconn: 65535
+    netdev_backlog: 65536
+    buffer_bytes: 67108864
+    conntrack_max: 2097152
