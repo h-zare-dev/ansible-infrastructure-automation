@@ -2,10 +2,10 @@
 - name: Validate Ookla Speedtest CLI architecture
   ansible.builtin.assert:
     that:
-      - ansible_architecture == speedtest_cli_arch
+      - ansible_facts["architecture"] == speedtest_cli_arch
     fail_msg: >-
       Ookla Speedtest CLI role currently supports only {{ speedtest_cli_arch }},
-      but this host reports {{ ansible_architecture }}.
+      but this host reports {{ ansible_facts["architecture"] }}.
 
 - name: Ensure Ookla Speedtest CLI cache directory exists
   ansible.builtin.file:
