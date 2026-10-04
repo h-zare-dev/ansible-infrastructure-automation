@@ -1,0 +1,6 @@
+---
+speedtest_cli_version: "1.2.0"
+speedtest_cli_arch: "x86_64"
+speedtest_cli_archive_url: "https://install.speedtest.net/app/cli/ookla-speedtest-{{ speedtest_cli_version }}-linux-{{ speedtest_cli_arch }}.tgz"
+speedtest_cli_cache_dir: "/var/cache/ookla-speedtest"
+speedtest_cli_install_path: "/usr/local/bin/speedtest"
