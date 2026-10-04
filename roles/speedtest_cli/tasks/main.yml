@@ -1,0 +1,41 @@
+---
+- name: Validate Ookla Speedtest CLI architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture == speedtest_cli_arch
+    fail_msg: >-
+      Ookla Speedtest CLI role currently supports only {{ speedtest_cli_arch }},
+      but this host reports {{ ansible_architecture }}.
+
+- name: Ensure Ookla Speedtest CLI cache directory exists
+  ansible.builtin.file:
+    path: "{{ speedtest_cli_cache_dir }}/{{ speedtest_cli_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download pinned Ookla Speedtest CLI archive
+  ansible.builtin.get_url:
+    url: "{{ speedtest_cli_archive_url }}"
+    dest: "{{ speedtest_cli_cache_dir }}/ookla-speedtest-{{ speedtest_cli_version }}-linux-{{ speedtest_cli_arch }}.tgz"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
+- name: Extract pinned Ookla Speedtest CLI archive
+  ansible.builtin.unarchive:
+    src: "{{ speedtest_cli_cache_dir }}/ookla-speedtest-{{ speedtest_cli_version }}-linux-{{ speedtest_cli_arch }}.tgz"
+    dest: "{{ speedtest_cli_cache_dir }}/{{ speedtest_cli_version }}"
+    remote_src: true
+    creates: "{{ speedtest_cli_cache_dir }}/{{ speedtest_cli_version }}/speedtest"
+
+- name: Install pinned Ookla Speedtest CLI command
+  ansible.builtin.copy:
+    src: "{{ speedtest_cli_cache_dir }}/{{ speedtest_cli_version }}/speedtest"
+    dest: "{{ speedtest_cli_install_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
