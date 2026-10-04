@@ -51,16 +51,14 @@
   register: optimization_route_after
   changed_when: false
 
-- name: Capture IPv4 addresses after tuning
-  ansible.builtin.command:
-    argv:
-      - ip
-      - -4
-      - -o
-      - addr
-      - show
-      - dev
-      - "{{ optimization_default_iface }}"
+- name: Capture canonical IPv4 address set after tuning
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip -4 -o addr show dev "{{ optimization_default_iface }}" |
+      awk '{print $4}' |
+      sort -u
+  args:
+    executable: /bin/bash
   register: optimization_addresses_after
   changed_when: false
 
@@ -98,7 +96,7 @@
   ansible.builtin.assert:
     that:
       - optimization_route_after.stdout == optimization_route_before.stdout
-      - optimization_addresses_after.stdout == optimization_addresses_before.stdout
+      - optimization_addresses_after.stdout_lines == optimization_addresses_before.stdout_lines
       - >-
         (optimization_resolv_before.stat.checksum | default('')) ==
         (optimization_resolv_after.stat.checksum | default(''))
@@ -106,8 +104,9 @@
         optimization_live_qdisc_replace | bool or
         optimization_qdisc_after.stdout == optimization_qdisc_before.stdout
     fail_msg: >-
-      Optimization changed the default route, interface addressing, resolver,
-      or live qdisc unexpectedly. Stop before applying to additional hosts.
+      Optimization changed the default route, interface IPv4 address set,
+      resolver, or live qdisc unexpectedly. IPv4 before={{ optimization_addresses_before.stdout_lines | join(',') }};
+      after={{ optimization_addresses_after.stdout_lines | join(',') }}. Stop before applying to additional hosts.
 
 - name: Assert Docker containers were not restarted
   ansible.builtin.assert:

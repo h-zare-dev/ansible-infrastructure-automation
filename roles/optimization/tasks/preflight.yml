@@ -57,16 +57,14 @@
   register: optimization_route_before
   changed_when: false
 
-- name: Capture IPv4 addresses on the default interface before tuning
-  ansible.builtin.command:
-    argv:
-      - ip
-      - -4
-      - -o
-      - addr
-      - show
-      - dev
-      - "{{ optimization_default_iface }}"
+- name: Capture canonical IPv4 address set on the default interface before tuning
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip -4 -o addr show dev "{{ optimization_default_iface }}" |
+      awk '{print $4}' |
+      sort -u
+  args:
+    executable: /bin/bash
   register: optimization_addresses_before
   changed_when: false
 
