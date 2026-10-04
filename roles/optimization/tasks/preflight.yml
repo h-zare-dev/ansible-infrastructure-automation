@@ -90,9 +90,10 @@
   register: optimization_resolv_before
 
 - name: Detect Docker command
-  ansible.builtin.shell: "command -v docker"
-  args:
-    executable: /bin/bash
+  ansible.builtin.command:
+    argv:
+      - docker
+      - --version
   register: optimization_docker_command
   changed_when: false
   failed_when: false
@@ -137,11 +138,11 @@
       awk '
         /^Tcp:/ {
           if (!header_seen) {
-            for (i=1; i<=NF; i++) index[$i]=i
+            for (i=1; i<=NF; i++) idx[$i]=i
             header_seen=1
             next
           }
-          print $(index["RetransSegs"]), $(index["InSegs"]), $(index["OutSegs"])
+          print $(idx["RetransSegs"]), $(idx["InSegs"]), $(idx["OutSegs"])
           exit
         }
       ' /proc/net/snmp
@@ -254,6 +255,26 @@
   loop: "{{ optimization_sysctl_scalar_probe.results }}"
   loop_control:
     label: "{{ item.item }}"
+
+- name: Probe conntrack bucket writability without changing its value
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - -w
+      - "net.netfilter.nf_conntrack_buckets={{ optimization_live_sysctl['net.netfilter.nf_conntrack_buckets'] }}"
+  register: optimization_conntrack_buckets_write_probe
+  changed_when: false
+  failed_when: false
+  when: optimization_live_sysctl["net.netfilter.nf_conntrack_buckets"] | int > 0
+
+- name: Record conntrack bucket writability
+  ansible.builtin.set_fact:
+    optimization_conntrack_buckets_writable: >-
+      {{
+        optimization_conntrack_buckets_write_probe is defined
+        and optimization_conntrack_buckets_write_probe.rc is defined
+        and optimization_conntrack_buckets_write_probe.rc == 0
+      }}
 
 - name: Probe current TCP buffer triples
   ansible.builtin.command:

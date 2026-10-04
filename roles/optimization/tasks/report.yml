@@ -16,11 +16,11 @@
       awk '
         /^Tcp:/ {
           if (!header_seen) {
-            for (i=1; i<=NF; i++) index[$i]=i
+            for (i=1; i<=NF; i++) idx[$i]=i
             header_seen=1
             next
           }
-          print $(index["RetransSegs"]), $(index["InSegs"]), $(index["OutSegs"])
+          print $(idx["RetransSegs"]), $(idx["InSegs"]), $(idx["OutSegs"])
           exit
         }
       ' /proc/net/snmp
