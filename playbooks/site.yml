@@ -10,6 +10,7 @@
     - hostname
     - dns_resolver
     - base_packages
+    - speedtest_cli
     - floatip_manager
     - monitoring
 

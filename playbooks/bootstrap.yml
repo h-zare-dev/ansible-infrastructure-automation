@@ -16,6 +16,7 @@
 
   roles:
     - system_update
+    - speedtest_cli
     - floatip_manager
     - ssh_security
     - cloudflare_dns
