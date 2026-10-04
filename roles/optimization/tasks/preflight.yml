@@ -1,0 +1,303 @@
+---
+- name: Validate optimization inputs
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["system"] == "Linux"
+      - optimization_profile == "vpn-node"
+      - optimization_expected_users | int >= 0
+      - optimization_rps_mode in ["auto", "on", "off"]
+      - optimization_cpu_governor in ["preserve", "performance"]
+      - optimization_thp_mode in ["preserve", "madvise"]
+    fail_msg: "Unsupported optimization input or operating system."
+
+- name: Detect default IPv4 interface
+  ansible.builtin.set_fact:
+    optimization_default_iface: "{{ ansible_facts['default_ipv4']['interface'] | default('') }}"
+
+- name: Require a default IPv4 interface
+  ansible.builtin.assert:
+    that:
+      - optimization_default_iface | length > 0
+    fail_msg: "No default IPv4 interface was detected; refusing network tuning."
+
+- name: Load conntrack module before capacity probes
+  ansible.builtin.command:
+    argv:
+      - modprobe
+      - nf_conntrack
+  register: optimization_preflight_conntrack
+  changed_when: false
+  failed_when: optimization_preflight_conntrack.rc != 0
+
+- name: Detect active swap backend
+  ansible.builtin.shell: |
+    awk 'NR > 1 {
+      if ($1 ~ /zram/) { print "zram"; exit }
+      print ($2 == "file" ? "file" : "partition")
+      exit
+    }
+    END { if (NR < 2) print "none" }' /proc/swaps
+  args:
+    executable: /bin/bash
+  register: optimization_swap_backend
+  changed_when: false
+
+- name: Select swappiness for the existing swap backend
+  ansible.builtin.set_fact:
+    optimization_swappiness: "{{ 100 if optimization_swap_backend.stdout | trim == 'zram' else 10 }}"
+
+- name: Capture default IPv4 route before tuning
+  ansible.builtin.command:
+    argv:
+      - ip
+      - -4
+      - route
+      - show
+      - default
+  register: optimization_route_before
+  changed_when: false
+
+- name: Capture IPv4 addresses on the default interface before tuning
+  ansible.builtin.command:
+    argv:
+      - ip
+      - -4
+      - -o
+      - addr
+      - show
+      - dev
+      - "{{ optimization_default_iface }}"
+  register: optimization_addresses_before
+  changed_when: false
+
+- name: Capture active qdisc before tuning
+  ansible.builtin.command:
+    argv:
+      - tc
+      - qdisc
+      - show
+      - dev
+      - "{{ optimization_default_iface }}"
+  register: optimization_qdisc_before
+  changed_when: false
+  failed_when: false
+
+- name: Capture resolver file state before tuning
+  ansible.builtin.stat:
+    path: /etc/resolv.conf
+    follow: true
+    get_checksum: true
+  register: optimization_resolv_before
+
+- name: Detect Docker command
+  ansible.builtin.shell: "command -v docker"
+  args:
+    executable: /bin/bash
+  register: optimization_docker_command
+  changed_when: false
+  failed_when: false
+
+- name: Capture running Docker containers before tuning
+  ansible.builtin.command:
+    argv:
+      - docker
+      - ps
+      - -q
+  register: optimization_docker_before
+  changed_when: false
+  failed_when: false
+  when: optimization_docker_command.rc == 0
+
+- name: Discover externally reachable TCP listeners in ephemeral range
+  ansible.builtin.shell: |
+    set -o pipefail
+    ss -H -ltn4 |
+      awk '
+        {
+          local_addr=$4
+          n=split(local_addr, parts, ":")
+          port=parts[n]
+          host=local_addr
+          sub(/:[^:]*$/, "", host)
+          if (host !~ /^127\./ && port ~ /^[0-9]+$/ && port >= 10240 && port <= 65535) {
+            print port
+          }
+        }
+      ' |
+      sort -un
+  args:
+    executable: /bin/bash
+  register: optimization_detected_reserved_ports
+  changed_when: false
+
+- name: Capture network counters before tuning
+  ansible.builtin.shell: |
+    set -o pipefail
+    tcp_values="$(
+      awk '
+        /^Tcp:/ {
+          if (!header_seen) {
+            for (i=1; i<=NF; i++) index[$i]=i
+            header_seen=1
+            next
+          }
+          print $(index["RetransSegs"]), $(index["InSegs"]), $(index["OutSegs"])
+          exit
+        }
+      ' /proc/net/snmp
+    )"
+    drops="$(
+      awk 'NR > 2 {rx += $5; tx += $12} END {print rx + tx + 0}' /proc/net/dev
+    )"
+    printf '%s %s\n' "$tcp_values" "$drops"
+  args:
+    executable: /bin/bash
+  register: optimization_network_counters_before
+  changed_when: false
+  failed_when: false
+
+- name: Capture current reserved port ranges
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - -n
+      - net.ipv4.ip_local_reserved_ports
+  register: optimization_existing_reserved_ports
+  changed_when: false
+  failed_when: false
+
+- name: Merge reserved port coverage without dropping existing ranges
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import os
+
+        ports = set()
+
+        def add_token(token):
+            token = token.strip()
+            if not token:
+                return
+            if "-" in token:
+                low, high = token.split("-", 1)
+                if low.isdigit() and high.isdigit():
+                    for port in range(max(1, int(low)), min(65535, int(high)) + 1):
+                        ports.add(port)
+            elif token.isdigit():
+                port = int(token)
+                if 1 <= port <= 65535:
+                    ports.add(port)
+
+        for source in ("CURRENT", "DETECTED", "EXTRA"):
+            for token in os.environ.get(source, "").replace(" ", ",").split(","):
+                add_token(token)
+
+        ranges = []
+        for port in sorted(ports):
+            if not ranges or port != ranges[-1][1] + 1:
+                ranges.append([port, port])
+            else:
+                ranges[-1][1] = port
+
+        print(",".join(
+            str(low) if low == high else f"{low}-{high}"
+            for low, high in ranges
+        ))
+  environment:
+    CURRENT: "{{ optimization_existing_reserved_ports.stdout | default('') | trim }}"
+    DETECTED: "{{ optimization_detected_reserved_ports.stdout_lines | default([]) | join(',') }}"
+    EXTRA: "{{ optimization_reserved_ports | map('string') | join(',') }}"
+  register: optimization_reserved_ports_merged
+  changed_when: false
+
+- name: Store preserved reserved port coverage
+  ansible.builtin.set_fact:
+    optimization_reserved_ports_value: "{{ optimization_reserved_ports_merged.stdout | trim }}"
+
+- name: Probe current scalar sysctl values
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - -n
+      - "{{ item }}"
+  loop:
+    - net.core.somaxconn
+    - net.core.netdev_max_backlog
+    - net.core.rmem_max
+    - net.core.wmem_max
+    - net.core.rmem_default
+    - net.core.wmem_default
+    - net.core.optmem_max
+    - net.ipv4.tcp_max_syn_backlog
+    - net.netfilter.nf_conntrack_max
+    - net.netfilter.nf_conntrack_buckets
+    - fs.file-max
+    - fs.nr_open
+    - vm.max_map_count
+    - net.ipv4.tcp_min_snd_mss
+  register: optimization_sysctl_scalar_probe
+  changed_when: false
+  failed_when: false
+
+- name: Build scalar sysctl lookup
+  ansible.builtin.set_fact:
+    optimization_live_sysctl: >-
+      {{
+        optimization_live_sysctl | default({})
+        | combine({
+            item.item:
+              ((item.stdout | trim | int) if item.rc == 0 else 0)
+          })
+      }}
+  loop: "{{ optimization_sysctl_scalar_probe.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Probe current TCP buffer triples
+  ansible.builtin.command:
+    argv:
+      - sysctl
+      - -n
+      - "{{ item }}"
+  loop:
+    - net.ipv4.tcp_rmem
+    - net.ipv4.tcp_wmem
+  register: optimization_tcp_buffer_probe
+  changed_when: false
+
+- name: Capture current TCP receive buffer triple
+  ansible.builtin.set_fact:
+    optimization_tcp_rmem_live: >-
+      {{
+        (
+          optimization_tcp_buffer_probe.results
+          | selectattr('item', 'equalto', 'net.ipv4.tcp_rmem')
+          | map(attribute='stdout')
+          | first
+        ).split()
+        | map('int')
+        | list
+      }}
+
+- name: Capture current TCP send buffer triple
+  ansible.builtin.set_fact:
+    optimization_tcp_wmem_live: >-
+      {{
+        (
+          optimization_tcp_buffer_probe.results
+          | selectattr('item', 'equalto', 'net.ipv4.tcp_wmem')
+          | map(attribute='stdout')
+          | first
+        ).split()
+        | map('int')
+        | list
+      }}
+
+- name: Require valid TCP buffer triples
+  ansible.builtin.assert:
+    that:
+      - optimization_tcp_rmem_live | length == 3
+      - optimization_tcp_wmem_live | length == 3
+    fail_msg: "Could not read the running TCP buffer defaults safely."
