@@ -1,0 +1,67 @@
+---
+- name: Ensure PAM limits directory exists
+  ansible.builtin.file:
+    path: /etc/security/limits.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure high file descriptor limits
+  ansible.builtin.copy:
+    dest: "{{ optimization_limits_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible: native VPN optimization
+      * soft nofile {{ optimization_nofile_limit }}
+      * hard nofile {{ optimization_nofile_limit }}
+      root soft nofile {{ optimization_nofile_limit }}
+      root hard nofile {{ optimization_nofile_limit }}
+
+- name: Ensure systemd manager drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure systemd default file descriptor limit
+  ansible.builtin.copy:
+    dest: "{{ optimization_systemd_limits_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible: native VPN optimization
+      [Manager]
+      DefaultLimitNOFILE={{ optimization_nofile_limit }}
+  notify: Reexecute systemd manager
+
+- name: Read Docker service file descriptor limit
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - show
+      - docker
+      - --property=LimitNOFILE
+      - --value
+  register: optimization_docker_nofile
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: optimization_docker_command.rc == 0
+
+- name: Report Docker limit when it is below the host target
+  ansible.builtin.debug:
+    msg: >-
+      Docker currently reports LimitNOFILE={{ optimization_docker_nofile.stdout | trim }}.
+      Existing containers may keep their current limits until they are recreated or
+      restarted. This role intentionally does not restart Docker or containers.
+  when:
+    - optimization_docker_command.rc == 0
+    - optimization_docker_nofile.rc == 0
+    - optimization_docker_nofile.stdout | trim is match('^[0-9]+$')
+    - (optimization_docker_nofile.stdout | trim | int) < (optimization_nofile_limit | int)

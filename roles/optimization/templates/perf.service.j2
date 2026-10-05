@@ -1,0 +1,12 @@
+[Unit]
+Description=Ansible-managed VPN CPU and NIC performance tuning
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={{ optimization_perf_script }}
+
+[Install]
+WantedBy=multi-user.target

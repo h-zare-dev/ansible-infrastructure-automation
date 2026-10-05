@@ -1,0 +1,61 @@
+---
+- name: Ensure journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: optimization_manage_journald | bool
+
+- name: Cap journald disk usage
+  ansible.builtin.copy:
+    dest: "{{ optimization_journald_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible: native VPN optimization
+      [Journal]
+      SystemMaxUse={{ optimization_journald_system_max_use }}
+      RuntimeMaxUse={{ optimization_journald_runtime_max_use }}
+  notify: Restart systemd-journald
+  when: optimization_manage_journald | bool
+
+- name: Read systemd NTP state
+  ansible.builtin.command:
+    argv:
+      - timedatectl
+      - show
+      - --property=NTP
+      - --value
+  register: optimization_ntp_state
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: optimization_manage_ntp | bool
+
+- name: Enable systemd NTP synchronization
+  ansible.builtin.command:
+    argv:
+      - timedatectl
+      - set-ntp
+      - "true"
+  register: optimization_ntp_enable
+  when:
+    - optimization_manage_ntp | bool
+    - optimization_ntp_state.rc == 0
+    - optimization_ntp_state.stdout | trim | lower not in ["yes", "true", "1"]
+  changed_when: optimization_ntp_enable.rc == 0
+  failed_when: false
+
+- name: Warn when NTP could not be enabled
+  ansible.builtin.debug:
+    msg: >-
+      timedatectl could not enable NTP on this host. Network tuning continues
+      because time synchronization is a hygiene setting, not a data-path prerequisite.
+  when:
+    - optimization_manage_ntp | bool
+    - optimization_ntp_enable is defined
+    - optimization_ntp_enable.rc is defined
+    - optimization_ntp_enable.rc != 0

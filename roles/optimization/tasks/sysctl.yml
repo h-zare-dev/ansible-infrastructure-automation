@@ -1,0 +1,24 @@
+---
+- name: Deploy network sysctl profile
+  ansible.builtin.template:
+    src: vpn-network-tuning.conf.j2
+    dest: "{{ optimization_sysctl_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply optimization sysctl
+
+- name: Optionally switch the live root qdisc
+  ansible.builtin.command:
+    argv:
+      - tc
+      - qdisc
+      - replace
+      - dev
+      - "{{ optimization_default_iface }}"
+      - root
+      - "{{ optimization_default_qdisc }}"
+  when:
+    - optimization_live_qdisc_replace | bool
+    - optimization_default_qdisc not in optimization_qdisc_before.stdout
+  changed_when: true

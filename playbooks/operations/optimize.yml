@@ -1,7 +1,7 @@
 ---
-- name: Run ServerTools OS Performance Tuning
-  hosts: pasarguard_nodes
+- name: Run network host performance tuning
+  hosts: "{{ optimize_hosts | default('common') }}"
   become: true
-  gather_facts: false
+  gather_facts: true
   roles:
     - optimization

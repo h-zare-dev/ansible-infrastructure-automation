@@ -1,0 +1,63 @@
+---
+- name: Check for legacy ServerTools performance unit
+  ansible.builtin.stat:
+    path: /etc/systemd/system/server-tools-perf.service
+  register: optimization_legacy_perf_unit
+
+- name: Stop and disable legacy ServerTools performance unit
+  ansible.builtin.systemd:
+    name: server-tools-perf.service
+    state: stopped
+    enabled: false
+  when:
+    - optimization_manage_perf | bool
+    - optimization_legacy_perf_unit.stat.exists
+  failed_when: false
+
+- name: Remove legacy ServerTools sysctl profile
+  ansible.builtin.file:
+    path: /etc/sysctl.d/99-server-tools.conf
+    state: absent
+  notify: Apply optimization sysctl
+
+- name: Remove legacy ServerTools module persistence
+  ansible.builtin.file:
+    path: /etc/modules-load.d/server-tools.conf
+    state: absent
+
+- name: Remove legacy ServerTools performance files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/server-tools/perf-boot.sh
+    - /etc/systemd/system/server-tools-perf.service
+  register: optimization_legacy_perf_removed
+  when: optimization_manage_perf | bool
+
+- name: Reload systemd after legacy performance unit removal
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when:
+    - optimization_manage_perf | bool
+    - optimization_legacy_perf_removed.changed
+
+- name: Remove legacy ServerTools PAM limits
+  ansible.builtin.file:
+    path: /etc/security/limits.d/99-server-tools.conf
+    state: absent
+  when: optimization_manage_limits | bool
+
+- name: Remove legacy ServerTools systemd limits
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d/99-server-tools.conf
+    state: absent
+  notify: Reexecute systemd manager
+  when: optimization_manage_limits | bool
+
+- name: Remove legacy ServerTools journald cap
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d/99-server-tools.conf
+    state: absent
+  notify: Restart systemd-journald
+  when: optimization_manage_journald | bool

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -u
+
+RPS_MODE="{{ optimization_rps_mode }}"
+CPU_GOVERNOR="{{ optimization_cpu_governor }}"
+THP_MODE="{{ optimization_thp_mode }}"
+RFS_GLOBAL=32768
+
+cpu_mask() {
+  local cores="$1" groups i bits word mask=""
+  (( cores > 64 )) && cores=64
+  groups=$(( (cores + 31) / 32 ))
+  for ((i=groups - 1; i>=0; i--)); do
+    bits=$((cores - i * 32))
+    (( bits > 32 )) && bits=32
+    if (( bits >= 32 )); then
+      word="ffffffff"
+    else
+      word="$(printf '%08x' "$(( (1 << bits) - 1 ))")"
+    fi
+    mask+="$word"
+    (( i > 0 )) && mask+=","
+  done
+  printf '%s' "$mask"
+}
+
+iface="$(ip -4 route show default 2>/dev/null | awk 'NR==1 {for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')"
+cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
+[[ "$cores" =~ ^[0-9]+$ ]] || cores=1
+
+if [[ "$CPU_GOVERNOR" == "performance" ]]; then
+  for governor in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+    [[ -w "$governor" ]] && printf '%s\n' performance >"$governor" 2>/dev/null || true
+  done
+fi
+
+if [[ "$THP_MODE" == "madvise" ]]; then
+  [[ -w /sys/kernel/mm/transparent_hugepage/enabled ]] &&
+    printf '%s\n' madvise >/sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null || true
+  [[ -w /sys/kernel/mm/transparent_hugepage/defrag ]] &&
+    printf '%s\n' madvise >/sys/kernel/mm/transparent_hugepage/defrag 2>/dev/null || true
+fi
+
+if [[ -n "$iface" && -d "/sys/class/net/$iface/queues" && "$RPS_MODE" != "off" && "$cores" -gt 1 ]]; then
+  rx_queues="$(find "/sys/class/net/$iface/queues" -maxdepth 1 -type d -name 'rx-*' 2>/dev/null | wc -l)"
+  tx_queues="$(find "/sys/class/net/$iface/queues" -maxdepth 1 -type d -name 'tx-*' 2>/dev/null | wc -l)"
+  [[ "$rx_queues" =~ ^[0-9]+$ ]] || rx_queues=0
+  [[ "$tx_queues" =~ ^[0-9]+$ ]] || tx_queues=0
+
+  apply_rps=0
+  [[ "$RPS_MODE" == "on" ]] && apply_rps=1
+  [[ "$RPS_MODE" == "auto" && "$rx_queues" -gt 0 && "$rx_queues" -lt "$cores" ]] && apply_rps=1
+
+  if (( apply_rps )); then
+    mask="$(cpu_mask "$cores")"
+    if [[ -w /proc/sys/net/core/rps_sock_flow_entries ]]; then
+      printf '%s\n' "$RFS_GLOBAL" >/proc/sys/net/core/rps_sock_flow_entries 2>/dev/null || true
+    fi
+    flow_per_queue=$(( rx_queues > 0 ? RFS_GLOBAL / rx_queues : RFS_GLOBAL ))
+    (( flow_per_queue < 1024 )) && flow_per_queue=1024
+
+    for queue in /sys/class/net/"$iface"/queues/rx-*; do
+      [[ -w "$queue/rps_cpus" ]] && printf '%s\n' "$mask" >"$queue/rps_cpus" 2>/dev/null || true
+      [[ -w "$queue/rps_flow_cnt" ]] && printf '%s\n' "$flow_per_queue" >"$queue/rps_flow_cnt" 2>/dev/null || true
+    done
+
+    if (( tx_queues > 1 )); then
+      for queue in /sys/class/net/"$iface"/queues/tx-*; do
+        [[ -w "$queue/xps_cpus" ]] && printf '%s\n' "$mask" >"$queue/xps_cpus" 2>/dev/null || true
+      done
+    fi
+  fi
+fi
