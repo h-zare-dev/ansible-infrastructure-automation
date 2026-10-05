@@ -1,30 +1,27 @@
 ---
 - name: Probe BBR module
   ansible.builtin.command:
-    argv:
-      - modprobe
-      - tcp_bbr
+    argv: "{{ ['modprobe'] + (['--dry-run'] if ansible_check_mode else []) + ['tcp_bbr'] }}"
   register: optimization_modprobe_bbr
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Probe fq qdisc module
   ansible.builtin.command:
-    argv:
-      - modprobe
-      - sch_fq
+    argv: "{{ ['modprobe'] + (['--dry-run'] if ansible_check_mode else []) + ['sch_fq'] }}"
   register: optimization_modprobe_fq
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Probe fq_codel qdisc module
   ansible.builtin.command:
-    argv:
-      - modprobe
-      - sch_fq_codel
+    argv: "{{ ['modprobe'] + (['--dry-run'] if ansible_check_mode else []) + ['sch_fq_codel'] }}"
   register: optimization_modprobe_fq_codel
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Read available TCP congestion controls
   ansible.builtin.command:
@@ -34,6 +31,7 @@
       - net.ipv4.tcp_available_congestion_control
   register: optimization_available_cc
   changed_when: false
+  check_mode: false
 
 - name: Read current TCP congestion control
   ansible.builtin.command:
@@ -43,6 +41,7 @@
       - net.ipv4.tcp_congestion_control
   register: optimization_current_cc
   changed_when: false
+  check_mode: false
 
 - name: Read current default qdisc
   ansible.builtin.command:
@@ -52,6 +51,7 @@
       - net.core.default_qdisc
   register: optimization_current_qdisc
   changed_when: false
+  check_mode: false
 
 - name: Select supported congestion control and qdisc
   ansible.builtin.set_fact:
