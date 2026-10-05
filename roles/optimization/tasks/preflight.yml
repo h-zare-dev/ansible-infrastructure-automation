@@ -3,7 +3,7 @@
   ansible.builtin.assert:
     that:
       - ansible_facts["system"] == "Linux"
-      - optimization_profile == "vpn-node"
+      - optimization_profile in ["network-host", "vpn-node"]
       - optimization_expected_users | int >= 0
       - optimization_rps_mode in ["auto", "on", "off"]
       - optimization_cpu_governor in ["preserve", "performance"]
@@ -31,20 +31,22 @@
 
 - name: Detect active swap backend
   ansible.builtin.shell: |
-    awk 'NR > 1 {
-      if ($1 ~ /zram/) { print "zram"; exit }
-      print ($2 == "file" ? "file" : "partition")
-      exit
-    }
-    END { if (NR < 2) print "none" }' /proc/swaps
+    set -o pipefail
+    swapon --show=NAME,TYPE --noheadings 2>/dev/null | awk 'NF >= 2 {print $2; exit}'
   args:
     executable: /bin/bash
   register: optimization_swap_backend
   changed_when: false
+  failed_when: false
 
 - name: Select swappiness for the existing swap backend
   ansible.builtin.set_fact:
-    optimization_swappiness: "{{ 100 if optimization_swap_backend.stdout | trim == 'zram' else 10 }}"
+    optimization_swappiness: >-
+      {{
+        60 if optimization_swap_backend.stdout | trim == 'zram'
+        else 10 if optimization_swap_backend.stdout | trim | length > 0
+        else 1
+      }}
 
 - name: Capture default IPv4 route before tuning
   ansible.builtin.command:
@@ -179,41 +181,44 @@
             token = token.strip()
             if not token:
                 return
-            if "-" in token:
-                low, high = token.split("-", 1)
-                if low.isdigit() and high.isdigit():
-                    for port in range(max(1, int(low)), min(65535, int(high)) + 1):
-                        ports.add(port)
-            elif token.isdigit():
-                port = int(token)
-                if 1 <= port <= 65535:
-                    ports.add(port)
+            if '-' in token:
+                start, end = token.split('-', 1)
+                ports.update(range(int(start), int(end) + 1))
+            else:
+                ports.add(int(token))
 
-        for source in ("CURRENT", "DETECTED", "EXTRA"):
-            for token in os.environ.get(source, "").replace(" ", ",").split(","):
-                add_token(token)
+        for raw in os.environ.get('CURRENT', '').split(','):
+            add_token(raw)
+        for raw in os.environ.get('EXTRA', '').split(','):
+            add_token(raw)
+        for raw in os.environ.get('DETECTED', '').split(','):
+            add_token(raw)
+
+        ordered = sorted(p for p in ports if 1 <= p <= 65535)
+        if not ordered:
+            print('')
+            raise SystemExit
 
         ranges = []
-        for port in sorted(ports):
-            if not ranges or port != ranges[-1][1] + 1:
-                ranges.append([port, port])
-            else:
-                ranges[-1][1] = port
-
-        print(",".join(
-            str(low) if low == high else f"{low}-{high}"
-            for low, high in ranges
-        ))
+        start = prev = ordered[0]
+        for port in ordered[1:]:
+            if port == prev + 1:
+                prev = port
+                continue
+            ranges.append(str(start) if start == prev else f'{start}-{prev}')
+            start = prev = port
+        ranges.append(str(start) if start == prev else f'{start}-{prev}')
+        print(','.join(ranges))
   environment:
     CURRENT: "{{ optimization_existing_reserved_ports.stdout | default('') | trim }}"
+    EXTRA: "{{ optimization_reserved_ports | join(',') }}"
     DETECTED: "{{ optimization_detected_reserved_ports.stdout_lines | default([]) | join(',') }}"
-    EXTRA: "{{ optimization_reserved_ports | map('string') | join(',') }}"
-  register: optimization_reserved_ports_merged
+  register: optimization_reserved_ports_merge
   changed_when: false
 
 - name: Store preserved reserved port coverage
   ansible.builtin.set_fact:
-    optimization_reserved_ports_value: "{{ optimization_reserved_ports_merged.stdout | trim }}"
+    optimization_reserved_ports_value: "{{ optimization_reserved_ports_merge.stdout | trim }}"
 
 - name: Probe current scalar sysctl values
   ansible.builtin.command:
@@ -236,21 +241,17 @@
     - fs.nr_open
     - vm.max_map_count
     - net.ipv4.tcp_min_snd_mss
-  register: optimization_sysctl_scalar_probe
+  register: optimization_scalar_sysctl_probe
   changed_when: false
-  failed_when: false
 
 - name: Build scalar sysctl lookup
   ansible.builtin.set_fact:
     optimization_live_sysctl: >-
       {{
-        optimization_live_sysctl | default({})
-        | combine({
-            item.item:
-              ((item.stdout | trim | int) if item.rc == 0 else 0)
-          })
+        optimization_live_sysctl | default({}) |
+        combine({item.item: (item.stdout | trim | int)})
       }}
-  loop: "{{ optimization_sysctl_scalar_probe.results }}"
+  loop: "{{ optimization_scalar_sysctl_probe.results }}"
   loop_control:
     label: "{{ item.item }}"
 

@@ -1,5 +1,5 @@
 ---
-optimization_profile: "vpn-node"
+optimization_profile: "network-host"
 optimization_expected_users: 0
 
 optimization_live_qdisc_replace: false

@@ -60,7 +60,7 @@
     - optimization_network_counters_before.stdout.split() | length == 4
     - optimization_network_counters_after.stdout.split() | length == 4
 
-- name: Show native VPN optimization summary
+- name: Show network host optimization summary
   ansible.builtin.debug:
     msg:
       - "profile={{ optimization_profile }} tier={{ optimization_tier_name }} ram={{ ansible_facts['memtotal_mb'] }}MB"
