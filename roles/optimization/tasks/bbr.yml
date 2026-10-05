@@ -59,7 +59,7 @@
       {{
         'bbr'
         if optimization_modprobe_bbr.rc == 0
-        and 'bbr' in optimization_available_cc.stdout.split()
+        and (ansible_check_mode or 'bbr' in optimization_available_cc.stdout.split())
         else 'cubic'
         if 'cubic' in optimization_available_cc.stdout.split()
         else (optimization_current_cc.stdout | trim)
@@ -69,7 +69,7 @@
         'fq'
         if optimization_modprobe_bbr.rc == 0
         and optimization_modprobe_fq.rc == 0
-        and 'bbr' in optimization_available_cc.stdout.split()
+        and (ansible_check_mode or 'bbr' in optimization_available_cc.stdout.split())
         else 'fq_codel'
         if optimization_modprobe_fq_codel.rc == 0
         else (optimization_current_qdisc.stdout | trim)
