@@ -8,7 +8,7 @@
 - name: Prepare BBR and conntrack kernel modules
   ansible.builtin.include_tasks: bbr.yml
 
-- name: Apply native VPN sysctl tuning
+- name: Apply network sysctl tuning
   ansible.builtin.include_tasks: sysctl.yml
 
 - name: Apply file descriptor limits
@@ -25,7 +25,7 @@
 - name: Flush optimization handlers before verification
   ansible.builtin.meta: flush_handlers
 
-- name: Verify native tuning before retiring legacy ServerTools files
+- name: Verify tuning before retiring legacy ServerTools files
   ansible.builtin.include_tasks: verify.yml
 
 - name: Retire conflicting ServerTools-managed files
