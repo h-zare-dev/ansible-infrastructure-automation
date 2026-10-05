@@ -1,5 +1,5 @@
 ---
-- name: Deploy native VPN sysctl profile
+- name: Deploy network sysctl profile
   ansible.builtin.template:
     src: vpn-network-tuning.conf.j2
     dest: "{{ optimization_sysctl_file }}"
