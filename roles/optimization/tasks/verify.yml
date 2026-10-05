@@ -1,5 +1,5 @@
 ---
-- name: Read critical live sysctl values
+- name: Read and validate critical live sysctl values
   ansible.builtin.command:
     argv:
       - sysctl
@@ -8,6 +8,12 @@
   loop: "{{ optimization_verify_sysctls | dict2items }}"
   register: optimization_verify_results
   changed_when: false
+  check_mode: false
+  failed_when: >-
+    optimization_verify_results.rc != 0 or
+    (optimization_verify_results.stdout | trim) != (item.value | string)
+  loop_control:
+    label: "{{ item.key }} (expected={{ item.value }})"
   vars:
     optimization_verify_sysctls:
       net.core.default_qdisc: "{{ optimization_default_qdisc }}"
@@ -28,17 +34,6 @@
       fs.file-max: "{{ optimization_file_max }}"
       fs.nr_open: "{{ optimization_nr_open }}"
       vm.max_map_count: "{{ optimization_max_map_count }}"
-
-- name: Assert critical live sysctl values
-  ansible.builtin.assert:
-    that:
-      - item.stdout | trim == item.item.value | string
-    fail_msg: >-
-      Kernel setting {{ item.item.key }} is {{ item.stdout | trim }},
-      expected {{ item.item.value }}.
-  loop: "{{ optimization_verify_results.results }}"
-  loop_control:
-    label: "{{ item.item.key }}"
 
 - name: Capture default IPv4 route after tuning
   ansible.builtin.command:
