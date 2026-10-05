@@ -22,12 +22,11 @@
 
 - name: Load conntrack module before capacity probes
   ansible.builtin.command:
-    argv:
-      - modprobe
-      - nf_conntrack
+    argv: "{{ ['modprobe'] + (['--dry-run'] if ansible_check_mode else []) + ['nf_conntrack'] }}"
   register: optimization_preflight_conntrack
   changed_when: false
   failed_when: optimization_preflight_conntrack.rc != 0
+  check_mode: false
 
 - name: Detect active swap backend
   ansible.builtin.shell: |
@@ -38,6 +37,7 @@
   register: optimization_swap_backend
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Select swappiness for the existing swap backend
   ansible.builtin.set_fact:
@@ -58,6 +58,7 @@
       - default
   register: optimization_route_before
   changed_when: false
+  check_mode: false
 
 - name: Capture canonical IPv4 address set on the default interface before tuning
   ansible.builtin.shell: |
@@ -69,6 +70,7 @@
     executable: /bin/bash
   register: optimization_addresses_before
   changed_when: false
+  check_mode: false
 
 - name: Capture active qdisc before tuning
   ansible.builtin.command:
@@ -81,6 +83,7 @@
   register: optimization_qdisc_before
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Capture resolver file state before tuning
   ansible.builtin.stat:
@@ -97,6 +100,7 @@
   register: optimization_docker_command
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Capture running Docker containers before tuning
   ansible.builtin.command:
@@ -107,6 +111,7 @@
   register: optimization_docker_before
   changed_when: false
   failed_when: false
+  check_mode: false
   when: optimization_docker_command.rc == 0
 
 - name: Discover externally reachable TCP listeners in ephemeral range
@@ -130,6 +135,7 @@
     executable: /bin/bash
   register: optimization_detected_reserved_ports
   changed_when: false
+  check_mode: false
 
 - name: Capture network counters before tuning
   ansible.builtin.shell: |
@@ -156,6 +162,7 @@
   register: optimization_network_counters_before
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Capture current reserved port ranges
   ansible.builtin.command:
@@ -166,6 +173,7 @@
   register: optimization_existing_reserved_ports
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Merge reserved port coverage without dropping existing ranges
   ansible.builtin.command:
@@ -215,6 +223,7 @@
     DETECTED: "{{ optimization_detected_reserved_ports.stdout_lines | default([]) | join(',') }}"
   register: optimization_reserved_ports_merge
   changed_when: false
+  check_mode: false
 
 - name: Store preserved reserved port coverage
   ansible.builtin.set_fact:
@@ -243,6 +252,7 @@
     - net.ipv4.tcp_min_snd_mss
   register: optimization_scalar_sysctl_probe
   changed_when: false
+  check_mode: false
 
 - name: Build scalar sysctl lookup
   ansible.builtin.set_fact:
@@ -264,7 +274,9 @@
   register: optimization_conntrack_buckets_write_probe
   changed_when: false
   failed_when: false
-  when: optimization_live_sysctl["net.netfilter.nf_conntrack_buckets"] | int > 0
+  when:
+    - not ansible_check_mode
+    - optimization_live_sysctl["net.netfilter.nf_conntrack_buckets"] | int > 0
 
 - name: Record conntrack bucket writability
   ansible.builtin.set_fact:
@@ -286,6 +298,7 @@
     - net.ipv4.tcp_wmem
   register: optimization_tcp_buffer_probe
   changed_when: false
+  check_mode: false
 
 - name: Capture current TCP receive buffer triple
   ansible.builtin.set_fact:
