@@ -88,6 +88,8 @@ Rules:
   - The repository-owned native role must keep its pre/post network and Docker safety assertions.
   - Normal converged runs are expected to be idempotent and `--check --diff` must remain non-mutating.
 - `security-updates.yml`, `system-update.yml`, and `ping-control.yml` remain independent operational playbooks.
+- `security_updates` keeps unattended security installation enabled while automatic reboot remains disabled by default.
+  - `needrestart` may restart ordinary services automatically, but critical network-manager services are excluded by default and deferred to controlled maintenance.
 - Monitoring target generation remains inventory-driven.
 - Public repository files remain sanitized.
 - Real inventory, real Vault files, Vault passwords, and private keys remain excluded from Git.
