@@ -43,4 +43,5 @@
     - role: pasarguard
     - role: pasarguard_watchdog
     - role: abuse_firewall
+    - role: security_updates
     - role: system_update
