@@ -1,0 +1,19 @@
+# Molecule managed
+
+{% if item.registry is defined %}
+FROM {{ item.registry.url }}/{{ item.image }}
+{% else %}
+FROM {{ item.image }}
+{% endif %}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV USER=root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       bash \
+       ca-certificates \
+       python3 \
+       python3-apt \
+       sudo \
+    && rm -rf /var/lib/apt/lists/*
