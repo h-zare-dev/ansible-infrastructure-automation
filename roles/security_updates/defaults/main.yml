@@ -1,2 +1,13 @@
 ---
 security_updates_reboot: false
+
+# Keep Ubuntu 24.04+ needrestart automatic restarts for ordinary services while
+# deferring network-manager restarts that can disrupt connectivity or
+# runtime-only secondary/floating addresses. Set to "l" to defer all service
+# restarts until a controlled maintenance window.
+security_updates_needrestart_mode: "a"
+
+security_updates_needrestart_protected_services:
+  - systemd-networkd.service
+  - networking.service
+  - NetworkManager.service
