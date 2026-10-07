@@ -4,6 +4,14 @@
   become: true
   gather_facts: false
   tasks:
+    - name: Ensure OpenSSH runtime directory exists after systemd boot
+      ansible.builtin.file:
+        path: /run/sshd
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Ensure CI fixture directory exists
       ansible.builtin.file:
         path: /opt/ci-fixtures
