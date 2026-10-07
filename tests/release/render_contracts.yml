@@ -69,6 +69,8 @@
         src: ../../roles/optimization/templates/perf.service.j2
         dest: "{{ release_artifact_dir }}/vpn-network-perf.service"
         mode: "0644"
+      vars:
+        optimization_perf_script: /tmp/ansible-release-artifacts/vpn-network-perf
 
     - name: Render optimization sysctl profile
       ansible.builtin.template:
