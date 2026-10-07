@@ -1,0 +1,130 @@
+---
+- name: Render release qualification artifacts
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../../roles/optimization/defaults/main.yml
+    - ../../roles/abuse_firewall/defaults/main.yml
+    - ../../roles/pasarguard_watchdog/defaults/main.yml
+  vars:
+    release_artifact_dir: /tmp/ansible-release-artifacts
+
+    ansible_facts:
+      memtotal_mb: 4096
+
+    optimization_tier_name: M
+    optimization_default_qdisc: fq
+    optimization_congestion_control: bbr
+    optimization_somaxconn: 16384
+    optimization_tcp_max_syn_backlog: 16384
+    optimization_netdev_backlog: 32768
+    optimization_reserved_ports_value: "1025,443"
+    optimization_rmem_max: 16777216
+    optimization_wmem_max: 16777216
+    optimization_rmem_default: 262144
+    optimization_wmem_default: 262144
+    optimization_tcp_rmem:
+      - 4096
+      - 131072
+      - 16777216
+    optimization_tcp_wmem:
+      - 4096
+      - 65536
+      - 16777216
+    optimization_optmem_max: 131072
+    optimization_file_max: 2097152
+    optimization_nr_open: 2097152
+    optimization_max_map_count: 262144
+    optimization_swappiness: 1
+    optimization_expected_users: 0
+    optimization_conntrack_max: 262144
+    optimization_conntrack_buckets_writable: false
+    optimization_conntrack_buckets: 65536
+    optimization_tcp_min_snd_mss: 536
+    optimization_live_sysctl:
+      net.ipv4.tcp_min_snd_mss: 536
+    optimization_perf_script: /tmp/ansible-release-artifacts/vpn-network-perf
+
+  tasks:
+    - name: Reset release artifact directory
+      ansible.builtin.file:
+        path: "{{ release_artifact_dir }}"
+        state: absent
+
+    - name: Create release artifact directory
+      ansible.builtin.file:
+        path: "{{ release_artifact_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render optimization performance script
+      ansible.builtin.template:
+        src: ../../roles/optimization/templates/perf-boot.sh.j2
+        dest: "{{ release_artifact_dir }}/vpn-network-perf"
+        mode: "0755"
+
+    - name: Render optimization systemd unit
+      ansible.builtin.template:
+        src: ../../roles/optimization/templates/perf.service.j2
+        dest: "{{ release_artifact_dir }}/vpn-network-perf.service"
+        mode: "0644"
+
+    - name: Render optimization sysctl profile
+      ansible.builtin.template:
+        src: ../../roles/optimization/templates/vpn-network-tuning.conf.j2
+        dest: "{{ release_artifact_dir }}/vpn-network-tuning.conf"
+        mode: "0644"
+
+    - name: Render Abuse Defender script
+      ansible.builtin.template:
+        src: ../../roles/abuse_firewall/templates/abuse-update.sh.j2
+        dest: "{{ release_artifact_dir }}/abuse-defender-update.sh"
+        mode: "0755"
+
+    - name: Render PasarGuard watchdog script
+      ansible.builtin.template:
+        src: ../../roles/pasarguard_watchdog/templates/pg-watchdog.sh.j2
+        dest: "{{ release_artifact_dir }}/pg-watchdog.sh"
+        mode: "0755"
+
+    - name: Validate rendered shell syntax
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -n
+          - "{{ item }}"
+      loop:
+        - "{{ release_artifact_dir }}/vpn-network-perf"
+        - "{{ release_artifact_dir }}/abuse-defender-update.sh"
+        - "{{ release_artifact_dir }}/pg-watchdog.sh"
+      changed_when: false
+
+    - name: Validate rendered sysctl profile structure
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            from pathlib import Path
+
+            path = Path("/tmp/ansible-release-artifacts/vpn-network-tuning.conf")
+            keys = []
+            for raw in path.read_text().splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                assert "=" in line, line
+                key, value = (part.strip() for part in line.split("=", 1))
+                assert key and value, line
+                keys.append(key)
+
+            assert len(keys) == len(set(keys)), "duplicate sysctl keys"
+            required = {
+                "net.ipv4.ip_forward",
+                "net.ipv4.tcp_congestion_control",
+                "net.netfilter.nf_conntrack_max",
+                "net.ipv4.conf.all.rp_filter",
+            }
+            assert required <= set(keys), (required, set(keys))
+      changed_when: false
