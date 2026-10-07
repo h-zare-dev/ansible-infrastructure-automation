@@ -12,3 +12,5 @@ roles/optimization/tasks/main.yml var-naming[no-role-prefix]
 # PasarGuard register names and guarded restart are existing behavior.
 roles/pasarguard/tasks/main.yml var-naming[no-role-prefix]
 roles/pasarguard/tasks/main.yml no-changed-when
+# Full system maintenance intentionally upgrades RedHat-family packages to latest.
+roles/system_update/tasks/redhat.yml package-latest
