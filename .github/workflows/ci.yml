@@ -240,14 +240,15 @@ jobs:
           VALIDATION_RESULT: ${{ needs.validation.result }}
           MOLECULE_RESULT: ${{ needs.molecule.result }}
           RELEASE_RESULT: ${{ needs.release-qualification.result }}
-          REQUIRE_RELEASE: ${{
-            (github.ref == 'refs/heads/development' ||
-             github.ref == 'refs/heads/main' ||
-             github.base_ref == 'main' ||
-             github.head_ref == 'feature/full-release-qualification')
-            && 'true' || 'false'
-          }}
         run: |
+          require_release=false
+          if [[ "$GITHUB_REF" == "refs/heads/development" ||
+                "$GITHUB_REF" == "refs/heads/main" ||
+                "${GITHUB_BASE_REF:-}" == "main" ||
+                "${GITHUB_HEAD_REF:-}" == "feature/full-release-qualification" ]]; then
+            require_release=true
+          fi
+
           if [[ "$VALIDATION_RESULT" != "success" ]]; then
             echo "Repository Validation result: $VALIDATION_RESULT"
             exit 1
@@ -263,7 +264,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "$REQUIRE_RELEASE" == "true" && "$RELEASE_RESULT" != "success" ]]; then
+          if [[ "$require_release" == "true" && "$RELEASE_RESULT" != "success" ]]; then
             echo "Full Release Qualification is mandatory for this ref."
             exit 1
           fi
