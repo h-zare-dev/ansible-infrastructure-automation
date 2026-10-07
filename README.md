@@ -665,7 +665,7 @@ The workflow is defined in:
 
 It runs for pull requests targeting `development` or `main`, for pushes to those protected branches, and by manual workflow dispatch.
 
-The CI workflow has two required jobs behind one stable final status:
+The CI workflow has a stable final status named `CI Gate`.
 
 1. **Repository Validation**
    - checks out the full repository history without persisting GitHub credentials
@@ -681,8 +681,17 @@ The CI workflow has two required jobs behind one stable final status:
    - reruns convergence and fails if the second run changes state
    - verifies installed packages and generated security-update configuration
    - destroys the test containers after the scenario
+3. **Full Release Qualification**
+   - runs on `development`, `main`, and pull requests targeting `main`
+   - uses disposable privileged systemd containers for Ubuntu 24.04 and Ubuntu 26.04
+   - exercises controller-side SSH configuration and known-host cleanup against sandbox files
+   - exercises hostname, resolver, SSH hardening, monitoring, FloatIP installer, Speedtest installer, PasarGuard with a mock installer, watchdog, Abuse Firewall, and Debian system-update behavior
+   - runs Molecule idempotency across the release-system scenario
+   - contract-tests Cloudflare, Docker, FloatIP separation, optimization non-goals, and branch/playbook topology without contacting provider APIs
+   - exercises optimization tier/capacity calculations with synthetic host facts
+   - renders optimization, firewall, and watchdog artifacts and validates them with Bash syntax checks, ShellCheck, and `systemd-analyze verify`
 
-The final `CI Gate` succeeds only when both jobs succeed.
+For normal feature/fix PRs targeting `development`, Full Release Qualification is skipped to keep feedback fast. It becomes mandatory on the protected promotion path to `main`. The final `CI Gate` fails whenever a mandatory release qualification run does not succeed.
 
 The Python validation and integration-test toolchain is pinned for reproducibility:
 
@@ -699,7 +708,7 @@ The Galaxy collections are also version-pinned in `requirements.yml`, including 
 
 `scripts/validate.sh` checks PR diff formatting, YAML lint, Ansible lint, syntax-checks every playbook using an isolated copy of the sanitized example inventory, verifies required operational playbooks, and rejects accidentally tracked production inventory, Vault data, private-key-style filenames, and private-key material.
 
-CI uses no production SSH keys, Vault passwords, Cloudflare tokens, or production inventory and does not contact production hosts. Molecule operates only on disposable Docker containers created inside the GitHub-hosted runner.
+CI uses no production SSH keys, Vault passwords, Cloudflare tokens, or production inventory and does not contact production hosts. Molecule and Full Release Qualification operate only on disposable containers, generated fixtures, and sandbox controller paths inside the GitHub-hosted runner.
 
 Local validation remains available only as an optional developer convenience. If desired, create a disposable local virtual environment and install the same pinned dependencies, but local validation is not required before opening or merging a PR.
 
@@ -711,7 +720,7 @@ Production connectivity, deployment, application behavior, and reboot/network ve
 
 # Reliability and Idempotency
 
-Repeated runs should normally report `ok` for already-correct SSH security, Cloudflare DNS records, hostname, resolver settings, baseline packages, controller SSH shortcuts, and monitoring target generation. Ubuntu SSH-user detection is safe in Ansible check mode. Docker, PasarGuard installation and configuration, and watchdog deployment also use state checks where their implementation supports them. GitHub Actions now enforces Molecule idempotency for the currently covered `base_packages` and `security_updates` roles on disposable Ubuntu 24.04 and 26.04 containers.
+Repeated runs should normally report `ok` for already-correct SSH security, Cloudflare DNS records, hostname, resolver settings, baseline packages, controller SSH shortcuts, and monitoring target generation. Ubuntu SSH-user detection is safe in Ansible check mode. GitHub Actions enforces Molecule idempotency for `base_packages` and `security_updates`, and Full Release Qualification expands idempotency coverage across the release-system scenario on disposable Ubuntu 24.04 and 26.04 containers.
 
 The native `optimization` operation is also designed for idempotent normal runs and supports `--check --diff`. A first migration run can legitimately report changes while it installs repository-owned tuning files and retires old ServerTools artifacts; once converged, repeated normal runs should report no changes unless the host state or desired variables changed. Local linting and syntax checks validate repository structure; the operator must still verify actual access, DNS, monitoring, networking, and reboot behavior in the production environment.
 
@@ -796,7 +805,7 @@ Potential future improvements:
 - stronger operational timeout handling
 - improved APT lock handling
 - role-specific documentation
-- expand Molecule integration/idempotency coverage to additional CI-safe roles
+- expand isolated coverage for provider-backed roles without introducing production credentials
 - additional monitoring and alerting
 - checksum/signature validation for externally downloaded operational artifacts
 - versioned releases and changelog
