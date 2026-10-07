@@ -31,7 +31,18 @@ git status --short
 
 echo
 echo "==> Running yamllint"
-yamllint -f parsable   .yamllint   .ansible-lint   .github/workflows   requirements.yml   inventory/group_vars/all/vars.yml   inventory/group_vars/all/vault.yml.example   inventory/group_vars/ssh_ubuntu.yml   playbooks   roles
+yaml_targets=(
+  .yamllint
+  .ansible-lint
+  .github/workflows
+  requirements.yml
+  inventory/group_vars/all/vars.yml
+  inventory/group_vars/all/vault.yml.example
+  inventory/group_vars/ssh_ubuntu.yml
+  playbooks
+  roles
+)
+yamllint -f parsable "${yaml_targets[@]}"
 
 echo
 echo "==> Running ansible-lint"
@@ -42,7 +53,8 @@ echo "==> Running Ansible syntax checks with example inventory"
 
 echo
 echo "---- playbooks/bootstrap.yml ----"
-ansible-playbook   -i "$INVENTORY"   playbooks/bootstrap.yml   --syntax-check   -e bootstrap_host=node-01
+ansible-playbook -i "$INVENTORY" playbooks/bootstrap.yml \
+  --syntax-check -e bootstrap_host=node-01
 
 mapfile -d '' -t playbooks < <(
   find playbooks -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 | sort -z
@@ -54,7 +66,7 @@ for playbook in "${playbooks[@]}"; do
   fi
   echo
   echo "---- $playbook ----"
-  ansible-playbook     -i "$INVENTORY"     "$playbook"     --syntax-check
+  ansible-playbook -i "$INVENTORY" "$playbook" --syntax-check
 done
 
 echo
