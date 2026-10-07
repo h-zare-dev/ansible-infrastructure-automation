@@ -1,9 +1,20 @@
 ---
-- name: Install unattended-upgrades
+- name: Validate security update platform and restart policy
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == 'Debian'
+      - security_updates_needrestart_mode in ['a', 'l']
+    fail_msg: >-
+      security_updates requires a Debian-family host and
+      security_updates_needrestart_mode must be either 'a' (automatic service
+      restarts except protected services) or 'l' (list only).
+
+- name: Install automatic security update tooling
   ansible.builtin.apt:
     name:
       - unattended-upgrades
       - apt-listchanges
+      - needrestart
     state: present
     update_cache: true
 
@@ -16,6 +27,23 @@
     content: |
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
+
+- name: Ensure needrestart drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/needrestart/conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure needrestart service restart policy
+  ansible.builtin.template:
+    src: needrestart-security-updates.conf.j2
+    dest: /etc/needrestart/conf.d/60-ansible-security-updates.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/bin/perl -c %s
 
 - name: Configure automatic security updates
   ansible.builtin.copy:
