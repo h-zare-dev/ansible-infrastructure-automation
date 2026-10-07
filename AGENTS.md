@@ -114,9 +114,10 @@ Before declaring a repository change ready for merge:
 4. Push the feature/fix branch and allow the repository CI workflow to run.
 5. Require the `CI Gate` status to pass before merge.
 6. Treat local `./scripts/validate.sh` execution as optional developer convenience, not a merge requirement.
-7. State clearly which production tests remain operator-only.
+7. For promotion to `main`, require Full Release Qualification to pass in addition to the normal CI jobs.
+8. State clearly which production tests remain operator-only.
 
-The CI workflow installs its own pinned validation toolchain, uses only sanitized example inventory, and must never contact production hosts. `CI Gate` includes both repository validation and Molecule integration/idempotency tests for the roles currently covered by Molecule.
+The CI workflow installs its own pinned validation toolchain, uses only sanitized/example fixtures, and must never contact production hosts. `CI Gate` always requires repository validation and core Molecule integration. On `development`, `main`, and PRs targeting `main`, it also requires Full Release Qualification. Full Release Qualification may use disposable privileged containers, but must not use production credentials, provider APIs, or production hosts.
 
 ## Change Workflow
 

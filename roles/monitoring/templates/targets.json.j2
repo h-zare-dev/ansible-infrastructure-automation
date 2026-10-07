@@ -4,7 +4,7 @@
     "labels": { "instance": "pasarguard" }
   }{% for host in groups['all'] %},
   {
-    "targets": ["{{ hostvars[host]['ansible_host'] }}:{{ monitoring_node_exporter_port }}"],
+    "targets": ["{{ hostvars[host]['ansible_host'] | default(host) }}:{{ monitoring_node_exporter_port }}"],
     "labels": { "instance": "{{ host | lower }}" }
   }{% endfor %}
 ]

@@ -9,6 +9,7 @@
     path: /etc/hosts
     line: "127.0.0.1 {{ item }}"
     state: present
+    unsafe_writes: true
   loop:
     - appclick.co
     - pushnotificationws.com

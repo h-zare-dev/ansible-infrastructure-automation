@@ -36,6 +36,7 @@ yaml_targets=(
   .ansible-lint
   .github/workflows
   molecule
+  tests/release
   requirements.yml
   inventory/group_vars/all/vars.yml
   inventory/group_vars/all/vault.yml.example
@@ -47,7 +48,7 @@ yamllint -f parsable "${yaml_targets[@]}"
 
 echo
 echo "==> Running ansible-lint"
-ansible-lint --offline playbooks roles molecule
+ansible-lint --offline playbooks roles molecule tests/release
 
 echo
 echo "==> Running Ansible syntax checks with example inventory"

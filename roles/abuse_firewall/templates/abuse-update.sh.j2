@@ -35,8 +35,10 @@ if [ ! -s "$TMP_IP_LIST" ]; then
 fi
 
 VALID_IP_COUNT="$(
-    grep -Ev '^[[:space:]]*(#|$)' "$TMP_IP_LIST" |
-    wc -l
+    awk '
+      !/^[[:space:]]*(#|$)/ { count++ }
+      END { print count + 0 }
+    ' "$TMP_IP_LIST"
 )"
 
 if [ "$VALID_IP_COUNT" -lt 1 ]; then

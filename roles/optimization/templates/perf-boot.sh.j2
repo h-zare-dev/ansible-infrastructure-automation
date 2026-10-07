@@ -30,15 +30,19 @@ cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
 
 if [[ "$CPU_GOVERNOR" == "performance" ]]; then
   for governor in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-    [[ -w "$governor" ]] && printf '%s\n' performance >"$governor" 2>/dev/null || true
+    if [[ -w "$governor" ]]; then
+      printf '%s\n' performance >"$governor" 2>/dev/null || true
+    fi
   done
 fi
 
 if [[ "$THP_MODE" == "madvise" ]]; then
-  [[ -w /sys/kernel/mm/transparent_hugepage/enabled ]] &&
+  if [[ -w /sys/kernel/mm/transparent_hugepage/enabled ]]; then
     printf '%s\n' madvise >/sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null || true
-  [[ -w /sys/kernel/mm/transparent_hugepage/defrag ]] &&
+  fi
+  if [[ -w /sys/kernel/mm/transparent_hugepage/defrag ]]; then
     printf '%s\n' madvise >/sys/kernel/mm/transparent_hugepage/defrag 2>/dev/null || true
+  fi
 fi
 
 if [[ -n "$iface" && -d "/sys/class/net/$iface/queues" && "$RPS_MODE" != "off" && "$cores" -gt 1 ]]; then
@@ -60,13 +64,19 @@ if [[ -n "$iface" && -d "/sys/class/net/$iface/queues" && "$RPS_MODE" != "off" &
     (( flow_per_queue < 1024 )) && flow_per_queue=1024
 
     for queue in /sys/class/net/"$iface"/queues/rx-*; do
-      [[ -w "$queue/rps_cpus" ]] && printf '%s\n' "$mask" >"$queue/rps_cpus" 2>/dev/null || true
-      [[ -w "$queue/rps_flow_cnt" ]] && printf '%s\n' "$flow_per_queue" >"$queue/rps_flow_cnt" 2>/dev/null || true
+      if [[ -w "$queue/rps_cpus" ]]; then
+        printf '%s\n' "$mask" >"$queue/rps_cpus" 2>/dev/null || true
+      fi
+      if [[ -w "$queue/rps_flow_cnt" ]]; then
+        printf '%s\n' "$flow_per_queue" >"$queue/rps_flow_cnt" 2>/dev/null || true
+      fi
     done
 
     if (( tx_queues > 1 )); then
       for queue in /sys/class/net/"$iface"/queues/tx-*; do
-        [[ -w "$queue/xps_cpus" ]] && printf '%s\n' "$mask" >"$queue/xps_cpus" 2>/dev/null || true
+        if [[ -w "$queue/xps_cpus" ]]; then
+          printf '%s\n' "$mask" >"$queue/xps_cpus" 2>/dev/null || true
+        fi
       done
     fi
   fi
