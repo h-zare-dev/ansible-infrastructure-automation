@@ -35,25 +35,25 @@
           - "'PasswordAuthentication no' in (molecule_ssh_hardening.content | b64decode)"
           - "'PubkeyAuthentication yes' in (molecule_ssh_hardening.content | b64decode)"
 
-    - name: Verify official root SSH key fixture
-      ansible.builtin.command:
-        argv:
-          - grep
-          - -F
-          - -f
-          - "{{ playbook_dir }}/../../tests/fixtures/ci_ed25519.pub"
-          - /root/.ssh/authorized_keys
-      changed_when: false
+    - name: Read root authorized keys
+      ansible.builtin.slurp:
+        src: /root/.ssh/authorized_keys
+      register: molecule_root_authorized_keys
 
-    - name: Verify official ubuntu SSH key fixture
-      ansible.builtin.command:
-        argv:
-          - grep
-          - -F
-          - -f
-          - "{{ playbook_dir }}/../../tests/fixtures/ci_ed25519.pub"
-          - /home/ubuntu/.ssh/authorized_keys
-      changed_when: false
+    - name: Read ubuntu authorized keys
+      ansible.builtin.slurp:
+        src: /home/ubuntu/.ssh/authorized_keys
+      register: molecule_ubuntu_authorized_keys
+
+    - name: Assert official SSH key fixture is installed
+      ansible.builtin.assert:
+        that:
+          - >-
+            (lookup('file', playbook_dir ~ '/../../tests/fixtures/ci_ed25519.pub') | trim)
+            in (molecule_root_authorized_keys.content | b64decode)
+          - >-
+            (lookup('file', playbook_dir ~ '/../../tests/fixtures/ci_ed25519.pub') | trim)
+            in (molecule_ubuntu_authorized_keys.content | b64decode)
 
     - name: Verify Cloudflare resolver configuration
       ansible.builtin.command:
