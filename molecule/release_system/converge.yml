@@ -36,6 +36,7 @@
     - role: hostname
     - role: dns_resolver
     - role: ssh_security
+    - role: base_packages
     - role: speedtest_cli
     - role: floatip_manager
     - role: monitoring
