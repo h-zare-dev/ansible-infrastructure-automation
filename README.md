@@ -39,7 +39,7 @@ Ongoing fleet system upgrades, security-update policy, ICMP control, and optimiz
 - RAM-aware, non-regressive BBR/conntrack/TCP tuning with Ansible check-mode support
 - Ansible Vault integration for secrets and environment-specific values
 - Public repository sanitization for safe portfolio use
-- Local linting and syntax validation with sanitized example inventory
+- GitHub Actions CI with pinned validation tooling and sanitized example inventory
 
 ---
 
@@ -653,32 +653,48 @@ Never commit:
 
 ---
 
-# Dependencies
+# CI and Validation
 
-Use a Python virtual environment for local validation. Install the developer tools and the project's pinned Ansible Galaxy collections:
+GitHub Actions is the authoritative validation environment for pull requests and protected branches. The Ansible controller does not need Python development packages, `ansible-lint`, `yamllint`, or Galaxy validation dependencies installed merely to validate repository changes.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements-dev.txt
-ansible-galaxy collection install -r requirements.yml
+The workflow is defined in:
+
+```text
+.github/workflows/ci.yml
 ```
 
----
+It runs for pull requests targeting `development` or `main`, for pushes to those protected branches, and by manual workflow dispatch.
 
-# Validation
+The CI runner:
 
-Run the repository's safe local validation command:
+1. checks out the full repository history without persisting GitHub credentials
+2. uses Ubuntu 24.04 with Python 3.13
+3. installs the exact versions pinned in `requirements-dev.txt`
+4. installs the exact Ansible collections pinned in `requirements.yml`
+5. runs `./scripts/validate.sh`
+6. validates the sanitized example inventory structure
+7. renders and syntax-checks the managed `needrestart` configuration
+8. exposes a stable final status named `CI Gate`
 
-```bash
-./scripts/validate.sh
+The Python validation toolchain is pinned for reproducibility:
+
+```text
+ansible-core==2.21.5
+ansible-lint==26.9.0
+yamllint==1.38.0
 ```
 
-It checks Git diff formatting, shows repository status, runs `yamllint` and `ansible-lint`, syntax-checks every playbook, verifies the required operational playbooks, and rejects tracked production inventory or Vault files. Bootstrap syntax checking supplies a safe `bootstrap_host`. Ansible checks use an isolated copy of the example inventory and sanitized group variables, so ignored production files beside the example inventory are not loaded. The command does not contact production hosts.
+The Galaxy collections are also version-pinned in `requirements.yml`.
 
-A few existing task-specific ansible-lint findings are narrowly ignored to preserve production behavior. The existing Docker `apt_repository` deprecation warning is outside this documentation phase.
+`scripts/validate.sh` checks PR diff formatting, YAML lint, Ansible lint, syntax-checks every playbook using an isolated copy of the sanitized example inventory, verifies required operational playbooks, and rejects accidentally tracked production inventory, Vault data, private-key-style filenames, and private-key material.
 
-Production inventory validation, connectivity checks, and deployment testing remain operator-controlled. Do not use the repository's default inventory for local validation.
+CI uses no production SSH keys, Vault passwords, Cloudflare tokens, or production inventory and does not contact production hosts.
+
+Local validation remains available only as an optional developer convenience. If desired, create a disposable local virtual environment and install the same pinned dependencies, but local validation is not required before opening or merging a PR.
+
+A few existing task-specific ansible-lint findings remain narrowly ignored to preserve production behavior. The existing Docker `apt_repository` deprecation warning remains outside this CI phase.
+
+Production connectivity, deployment, application behavior, and reboot/network verification remain manual operator responsibilities after the repository CI gate passes.
 
 ---
 
@@ -764,7 +780,6 @@ This project demonstrates hands-on experience with:
 
 Potential future improvements:
 
-- GitHub Actions CI using sanitized example inventory
 - secret scanning
 - stronger operational timeout handling
 - improved APT lock handling

@@ -1,4 +1,6 @@
-# Install the existing collections separately with: ansible-galaxy collection install -r requirements.yml
-ansible-core>=2.21,<2.22
-ansible-lint>=26.9,<27
-yamllint>=1.38,<2
+# CI validation toolchain. Keep exact versions for reproducible GitHub Actions runs.
+# Install Ansible collections separately with:
+# ansible-galaxy collection install -r requirements.yml
+ansible-core==2.21.5
+ansible-lint==26.9.0
+yamllint==1.38.0
