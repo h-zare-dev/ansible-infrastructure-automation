@@ -97,20 +97,60 @@ assert {
     "docker-compose-plugin",
 } <= set(docker_defaults["docker_packages"])
 
-optimization_tree = "\n".join(
-    path.read_text()
-    for path in (ROOT / "roles/optimization/tasks").glob("*.yml")
-)
+optimization_paths = list((ROOT / "roles/optimization/tasks").glob("*.yml"))
+optimization_tree = "\n".join(path.read_text() for path in optimization_paths)
 for forbidden in (
     "/etc/netplan",
     "ufw",
     "resolvectl dns",
-    "docker restart",
-    "systemctl restart docker",
 ):
     assert forbidden not in optimization_tree.lower(), (
         "optimization must preserve its non-goals",
         forbidden,
     )
+
+
+def iter_task_dicts(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from iter_task_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from iter_task_dicts(child)
+
+
+for path in optimization_paths:
+    data = load_yaml(str(path.relative_to(ROOT)))
+    for task in iter_task_dicts(data):
+        for module in ("ansible.builtin.systemd", "ansible.builtin.service"):
+            args = task.get(module)
+            if isinstance(args, dict):
+                assert str(args.get("name", "")).lower() != "docker", (
+                    "optimization must not manage Docker service state",
+                    path,
+                )
+
+        for module in ("ansible.builtin.command", "ansible.builtin.shell"):
+            args = task.get(module)
+            if isinstance(args, str):
+                command_text = args
+            elif isinstance(args, dict):
+                argv = args.get("argv", [])
+                command_text = " ".join(map(str, argv))
+                command_text += " " + str(args.get("cmd", ""))
+            else:
+                command_text = ""
+
+            assert "docker restart" not in command_text.lower(), (
+                "optimization must not restart Docker",
+                path,
+                command_text,
+            )
+            assert "systemctl restart docker" not in command_text.lower(), (
+                "optimization must not restart Docker",
+                path,
+                command_text,
+            )
 
 print("Repository release contracts are valid.")
