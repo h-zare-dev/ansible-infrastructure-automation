@@ -1,0 +1,12 @@
+# Managed by Ansible. Local changes will be overwritten.
+#
+# Ubuntu 24.04+ can automatically restart services after APT transactions.
+# Keep ordinary services current while deferring critical network-manager
+# restarts to a controlled maintenance window.
+$nrconf{restart} = '{{ security_updates_needrestart_mode }}';
+
+{% for service in security_updates_needrestart_protected_services %}
+$nrconf{override_rc}{qr(^{{ service | regex_escape }}$)} = 0;
+{% endfor %}
+
+1;
