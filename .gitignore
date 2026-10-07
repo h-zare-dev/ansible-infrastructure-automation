@@ -45,3 +45,7 @@ id_ed25519.*
 # Production-only inventory and secrets
 inventory/hosts.ini
 inventory/group_vars/all/vault.yml
+
+# Project SSH key naming convention
+ansible_ssh_key
+ansible_ssh_key.*
