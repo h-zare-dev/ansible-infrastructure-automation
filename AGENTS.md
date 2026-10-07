@@ -36,7 +36,7 @@ These rules are mandatory:
 - Never rewrite published/shared history.
 - Stop on an unexpected failure and report it.
 
-Production deployment and validation are performed manually by the operator.
+Production deployment and production validation are performed manually by the operator. Repository validation is enforced by GitHub Actions.
 
 ## Branch and Git Workflow
 
@@ -104,18 +104,19 @@ Rules:
 
 ## Validation Rules
 
-Before declaring a repository change complete:
+GitHub Actions is the authoritative repository-validation environment. Contributors and agents are not required to install Python, Ansible, lint tooling, or Galaxy collections on the Ansible controller merely to validate a PR.
 
-1. Run or arrange `git diff --check`.
-2. Run `./scripts/validate.sh` when the working environment can execute it safely.
-3. Syntax-check all affected playbooks.
-4. Review the complete diff.
-5. Confirm no unrelated files changed.
-6. Confirm no secrets, real inventory, private keys, or production values were introduced.
-7. Confirm required operational playbooks still exist and remain reachable.
-8. State clearly which validation was automated and which production tests are still operator-only.
+Before declaring a repository change ready for merge:
 
-Do not contact production hosts for validation.
+1. Review the complete diff.
+2. Confirm no unrelated files changed.
+3. Confirm no secrets, real inventory, private keys, or production values were introduced.
+4. Push the feature/fix branch and allow the repository CI workflow to run.
+5. Require the `CI Gate` status to pass before merge.
+6. Treat local `./scripts/validate.sh` execution as optional developer convenience, not a merge requirement.
+7. State clearly which production tests remain operator-only.
+
+The CI workflow installs its own pinned validation toolchain, uses only sanitized example inventory, and must never contact production hosts.
 
 ## Change Workflow
 
@@ -123,9 +124,9 @@ Do not contact production hosts for validation.
 2. Identify actual behavior and dependencies.
 3. Make the smallest coherent change that satisfies the request.
 4. Preserve production behavior unless the request explicitly changes it.
-5. Validate locally or with repository CI when available.
-6. Commit only on the feature/fix branch.
-7. Open a PR to `development` when requested.
+5. Commit only on the feature/fix branch.
+6. Open a PR to `development` when requested.
+7. Use GitHub Actions as the required repository-validation gate.
 8. Stop and report; the operator performs the merge and production validation.
 
 ## Communication
