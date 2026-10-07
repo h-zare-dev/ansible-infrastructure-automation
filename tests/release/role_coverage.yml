@@ -1,0 +1,23 @@
+---
+integration_core:
+  - base_packages
+  - security_updates
+
+integration_release_system:
+  - abuse_firewall
+  - controller_known_hosts
+  - controller_ssh_config
+  - dns_resolver
+  - floatip_manager
+  - hostname
+  - monitoring
+  - pasarguard
+  - pasarguard_watchdog
+  - speedtest_cli
+  - ssh_security
+  - system_update
+
+contract_only:
+  - cloudflare_dns
+  - docker
+  - optimization
