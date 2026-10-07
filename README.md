@@ -301,22 +301,33 @@ This playbook is intentionally **not** part of `site.yml`.
 
 `playbooks/operations/security-updates.yml` applies the `security_updates` role to `pasarguard_nodes`, one host at a time.
 
-It configures Ubuntu automatic security patching using `unattended-upgrades`.
+It configures Debian-family hosts for automatic security patching using `unattended-upgrades` and manages `needrestart` explicitly.
 
 The role:
 
-- installs `unattended-upgrades`
-- installs `apt-listchanges`
+- installs `unattended-upgrades`, `apt-listchanges`, and `needrestart`
 - enables periodic package-list refreshes
 - enables unattended security updates
 - limits automatic installation to security updates
-- disables automatic rebooting
+- disables automatic rebooting by default
+- keeps `needrestart` in automatic mode for ordinary services by default
+- prevents `systemd-networkd.service`, `networking.service`, and `NetworkManager.service` from being restarted automatically
+- supports `security_updates_needrestart_mode: "l"` when every service restart should be deferred to a maintenance window
 
-Automatic reboot is intentionally disabled.
+Ubuntu 24.04 and later can automatically restart affected services after APT transactions. The network-service exclusions are intentional: restarting the active network manager can interrupt connectivity and can remove runtime-only secondary or floating addresses until their persistent configuration is reapplied.
 
-Reboots remain a controlled maintenance operation and can be handled through `system-update.yml`.
+The default policy therefore keeps security packages installing automatically while deferring critical network-manager restarts. Other affected services can still be restarted automatically so patched libraries take effect promptly.
 
-Run:
+Automatic reboot remains disabled. Reboots and any deferred critical-service restarts are controlled maintenance actions and can be coordinated with `system-update.yml`.
+
+Run on one canary first:
+
+```bash
+ansible-playbook playbooks/operations/security-updates.yml \
+  --limit SERVER_NAME
+```
+
+Then roll out to the fleet:
 
 ```bash
 ansible-playbook playbooks/operations/security-updates.yml
