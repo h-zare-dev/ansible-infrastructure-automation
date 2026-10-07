@@ -665,30 +665,41 @@ The workflow is defined in:
 
 It runs for pull requests targeting `development` or `main`, for pushes to those protected branches, and by manual workflow dispatch.
 
-The CI runner:
+The CI workflow has two required jobs behind one stable final status:
 
-1. checks out the full repository history without persisting GitHub credentials
-2. uses Ubuntu 24.04 with Python 3.13
-3. installs the exact versions pinned in `requirements-dev.txt`
-4. installs the exact Ansible collections pinned in `requirements.yml`
-5. runs `./scripts/validate.sh`
-6. validates the sanitized example inventory structure
-7. renders and syntax-checks the managed `needrestart` configuration
-8. exposes a stable final status named `CI Gate`
+1. **Repository Validation**
+   - checks out the full repository history without persisting GitHub credentials
+   - uses Ubuntu 24.04 with Python 3.13
+   - installs the exact versions pinned in `requirements-dev.txt`
+   - installs the exact Ansible collections pinned in `requirements.yml`
+   - runs `./scripts/validate.sh`
+   - validates the sanitized example inventory structure
+   - renders and syntax-checks the managed `needrestart` configuration
+2. **Molecule Integration**
+   - creates disposable Docker targets for Ubuntu 24.04 and Ubuntu 26.04
+   - applies the CI-safe `base_packages` and `security_updates` roles
+   - reruns convergence and fails if the second run changes state
+   - verifies installed packages and generated security-update configuration
+   - destroys the test containers after the scenario
 
-The Python validation toolchain is pinned for reproducibility:
+The final `CI Gate` succeeds only when both jobs succeed.
+
+The Python validation and integration-test toolchain is pinned for reproducibility:
 
 ```text
 ansible-core==2.21.5
 ansible-lint==26.9.0
 yamllint==1.38.0
+molecule==26.9.0
+molecule-plugins[docker]==26.7.15
+docker==7.2.0
 ```
 
-The Galaxy collections are also version-pinned in `requirements.yml`.
+The Galaxy collections are also version-pinned in `requirements.yml`, including `community.docker` for the Molecule Docker driver.
 
 `scripts/validate.sh` checks PR diff formatting, YAML lint, Ansible lint, syntax-checks every playbook using an isolated copy of the sanitized example inventory, verifies required operational playbooks, and rejects accidentally tracked production inventory, Vault data, private-key-style filenames, and private-key material.
 
-CI uses no production SSH keys, Vault passwords, Cloudflare tokens, or production inventory and does not contact production hosts.
+CI uses no production SSH keys, Vault passwords, Cloudflare tokens, or production inventory and does not contact production hosts. Molecule operates only on disposable Docker containers created inside the GitHub-hosted runner.
 
 Local validation remains available only as an optional developer convenience. If desired, create a disposable local virtual environment and install the same pinned dependencies, but local validation is not required before opening or merging a PR.
 
@@ -700,7 +711,7 @@ Production connectivity, deployment, application behavior, and reboot/network ve
 
 # Reliability and Idempotency
 
-Repeated runs should normally report `ok` for already-correct SSH security, Cloudflare DNS records, hostname, resolver settings, baseline packages, controller SSH shortcuts, and monitoring target generation. Ubuntu SSH-user detection is safe in Ansible check mode. Docker, PasarGuard installation and configuration, and watchdog deployment also use state checks where their implementation supports them.
+Repeated runs should normally report `ok` for already-correct SSH security, Cloudflare DNS records, hostname, resolver settings, baseline packages, controller SSH shortcuts, and monitoring target generation. Ubuntu SSH-user detection is safe in Ansible check mode. Docker, PasarGuard installation and configuration, and watchdog deployment also use state checks where their implementation supports them. GitHub Actions now enforces Molecule idempotency for the currently covered `base_packages` and `security_updates` roles on disposable Ubuntu 24.04 and 26.04 containers.
 
 The native `optimization` operation is also designed for idempotent normal runs and supports `--check --diff`. A first migration run can legitimately report changes while it installs repository-owned tuning files and retires old ServerTools artifacts; once converged, repeated normal runs should report no changes unless the host state or desired variables changed. Local linting and syntax checks validate repository structure; the operator must still verify actual access, DNS, monitoring, networking, and reboot behavior in the production environment.
 
@@ -765,6 +776,7 @@ This project demonstrates hands-on experience with:
 - firewall automation
 - native BBR/TCP/conntrack capacity tuning
 - Ansible check-mode and idempotency validation
+- Molecule integration testing on Ubuntu 24.04 and 26.04
 - floating/secondary IP tooling
 - pinned operational CLI deployment
 - controlled rolling maintenance
@@ -784,8 +796,7 @@ Potential future improvements:
 - stronger operational timeout handling
 - improved APT lock handling
 - role-specific documentation
-- Molecule testing
-- automated idempotency testing
+- expand Molecule integration/idempotency coverage to additional CI-safe roles
 - additional monitoring and alerting
 - checksum/signature validation for externally downloaded operational artifacts
 - versioned releases and changelog

@@ -116,7 +116,7 @@ Before declaring a repository change ready for merge:
 6. Treat local `./scripts/validate.sh` execution as optional developer convenience, not a merge requirement.
 7. State clearly which production tests remain operator-only.
 
-The CI workflow installs its own pinned validation toolchain, uses only sanitized example inventory, and must never contact production hosts.
+The CI workflow installs its own pinned validation toolchain, uses only sanitized example inventory, and must never contact production hosts. `CI Gate` includes both repository validation and Molecule integration/idempotency tests for the roles currently covered by Molecule.
 
 ## Change Workflow
 
