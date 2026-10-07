@@ -1,0 +1,47 @@
+---
+- name: Converge release qualification roles
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    domain_suffix: ci.example.invalid
+    common_api_key: ci-placeholder-api-key
+
+    controller_known_hosts_path: /tmp/ansible-release-controller/ssh/known_hosts
+    controller_ssh_config_path: /tmp/ansible-release-controller/ssh/config
+    monitoring_targets_dir: /tmp/ansible-release-controller/targets
+    pasarguard_cert_destination_dir: /tmp/ansible-release-controller/certs
+
+    ssh_security_public_key_path: "{{ playbook_dir }}/../../tests/fixtures/ci_ed25519.pub"
+
+    speedtest_cli_archive_url: http://127.0.0.1:18080/speedtest.tgz
+    floatip_manager_url: http://127.0.0.1:18080/floatip
+    abuse_firewall_ip_list_url: file:///opt/ci-fixtures/abuse-ips.ipv4
+    pasarguard_installer_url: file:///opt/ci-fixtures/mock-pg-installer.sh
+
+    system_update_reboot: false
+
+  pre_tasks:
+    - name: Mark release targets as Hetzner-like for installer coverage
+      ansible.builtin.set_fact:
+        ansible_facts: >-
+          {{
+            ansible_facts
+            | combine({'system_vendor': 'Hetzner CI fixture'}, recursive=true)
+          }}
+
+  roles:
+    - role: controller_known_hosts
+    - role: controller_ssh_config
+    - role: hostname
+    - role: dns_resolver
+    - role: ssh_security
+    - role: base_packages
+    - role: speedtest_cli
+    - role: floatip_manager
+    - role: monitoring
+    - role: pasarguard
+    - role: pasarguard_watchdog
+    - role: abuse_firewall
+    - role: security_updates
+    - role: system_update

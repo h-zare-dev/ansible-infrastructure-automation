@@ -1,0 +1,229 @@
+---
+- name: Verify release qualification targets
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Validate SSH daemon configuration
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/sshd
+          - -t
+      changed_when: false
+
+    - name: Verify required services are active
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - "{{ item }}"
+      loop:
+        - ssh
+        - systemd-resolved
+        - prometheus-node-exporter
+      changed_when: false
+
+    - name: Read SSH hardening configuration
+      ansible.builtin.slurp:
+        src: /etc/ssh/sshd_config.d/00-security-hardening.conf
+      register: molecule_ssh_hardening
+
+    - name: Assert SSH hardening policy
+      ansible.builtin.assert:
+        that:
+          - "'PermitRootLogin prohibit-password' in (molecule_ssh_hardening.content | b64decode)"
+          - "'PasswordAuthentication no' in (molecule_ssh_hardening.content | b64decode)"
+          - "'PubkeyAuthentication yes' in (molecule_ssh_hardening.content | b64decode)"
+
+    - name: Read root authorized keys
+      ansible.builtin.slurp:
+        src: /root/.ssh/authorized_keys
+      register: molecule_root_authorized_keys
+
+    - name: Read ubuntu authorized keys
+      ansible.builtin.slurp:
+        src: /home/ubuntu/.ssh/authorized_keys
+      register: molecule_ubuntu_authorized_keys
+
+    - name: Assert official SSH key fixture is installed
+      ansible.builtin.assert:
+        that:
+          - >-
+            (lookup('file', playbook_dir ~ '/../../tests/fixtures/ci_ed25519.pub') | trim)
+            in (molecule_root_authorized_keys.content | b64decode)
+          - >-
+            (lookup('file', playbook_dir ~ '/../../tests/fixtures/ci_ed25519.pub') | trim)
+            in (molecule_ubuntu_authorized_keys.content | b64decode)
+
+    - name: Verify Cloudflare resolver configuration
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -Fx
+          - "DNS=1.1.1.1 1.0.0.1"
+          - /etc/systemd/resolved.conf
+      changed_when: false
+
+    - name: Verify installed FloatIP utility is the fixture
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/floatip
+      register: molecule_floatip_output
+      changed_when: false
+
+    - name: Assert FloatIP fixture output
+      ansible.builtin.assert:
+        that:
+          - molecule_floatip_output.stdout == 'floatip-ci-fixture'
+
+    - name: Verify installed Speedtest command
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/speedtest
+          - --version
+      register: molecule_speedtest_output
+      changed_when: false
+
+    - name: Assert Speedtest fixture output
+      ansible.builtin.assert:
+        that:
+          - "'CI fixture 1.2.0' in molecule_speedtest_output.stdout"
+
+    - name: Read PasarGuard environment
+      ansible.builtin.slurp:
+        src: /opt/pg-node/.env
+      register: molecule_pasarguard_env
+
+    - name: Assert PasarGuard protocol was enforced
+      ansible.builtin.assert:
+        that:
+          - >-
+            'SERVICE_PROTOCOL="rest"'
+            in (molecule_pasarguard_env.content | b64decode)
+
+    - name: Validate PasarGuard watchdog shell syntax
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -n
+          - /usr/local/bin/pg-watchdog.sh
+      changed_when: false
+
+    - name: Verify PasarGuard watchdog cron entry
+      ansible.builtin.shell: |
+        set -o pipefail
+        crontab -l | grep -F '/usr/local/bin/pg-watchdog.sh'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify Abuse Defender script syntax
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -n
+          - /root/abuse-defender-update.sh
+      changed_when: false
+
+    - name: Verify Abuse Defender chains
+      ansible.builtin.command:
+        argv:
+          - iptables
+          - -C
+          - DOCKER-USER
+          - -j
+          - abuse-defender
+      changed_when: false
+
+    - name: Verify Abuse Defender UDP chain
+      ansible.builtin.command:
+        argv:
+          - iptables
+          - -C
+          - DOCKER-USER
+          - -p
+          - udp
+          - -j
+          - DOCKER-UDP-FILTER
+      changed_when: false
+
+    - name: Verify unattended reboot remains disabled
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -F
+          - 'Unattended-Upgrade::Automatic-Reboot "false";'
+          - /etc/apt/apt.conf.d/52unattended-upgrades-local
+      changed_when: false
+
+- name: Verify controller-side release artifacts
+  hosts: all
+  gather_facts: false
+  become: false
+  run_once: true
+  tasks:
+    - name: Read managed controller SSH config
+      ansible.builtin.slurp:
+        src: /tmp/ansible-release-controller/ssh/config
+      delegate_to: localhost
+      register: molecule_controller_ssh_config
+
+    - name: Assert controller SSH config preserves manual content
+      ansible.builtin.assert:
+        that:
+          - "'Host external-ci-host' in (molecule_controller_ssh_config.content | b64decode)"
+          - "'# BEGIN ANSIBLE MANAGED INVENTORY SSH HOSTS' in (molecule_controller_ssh_config.content | b64decode)"
+          - "'Host release-ubuntu-2404' in (molecule_controller_ssh_config.content | b64decode)"
+          - "'Host release-ubuntu-2604' in (molecule_controller_ssh_config.content | b64decode)"
+
+    - name: Confirm bootstrap host keys were removed
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -F
+          - "{{ item }}"
+          - -f
+          - /tmp/ansible-release-controller/ssh/known_hosts
+      loop: "{{ groups['all'] }}"
+      delegate_to: localhost
+      register: molecule_known_hosts_query
+      changed_when: false
+      failed_when: molecule_known_hosts_query.rc != 1
+
+    - name: Validate Prometheus targets JSON
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import json
+            from pathlib import Path
+
+            path = Path("/tmp/ansible-release-controller/targets/targets.json")
+            data = json.loads(path.read_text())
+            labels = {entry["labels"]["instance"] for entry in data}
+            expected = {
+                "pasarguard",
+                "release-ubuntu-2404",
+                "release-ubuntu-2604",
+            }
+            assert expected <= labels, (expected, labels)
+            assert all(
+                target.endswith(":9100")
+                for entry in data
+                for target in entry["targets"]
+            )
+      delegate_to: localhost
+      changed_when: false
+
+    - name: Verify PasarGuard certificate fetch artifact
+      ansible.builtin.stat:
+        path: /tmp/ansible-release-controller/certs/release-ubuntu-2404_cert.pem
+      delegate_to: localhost
+      register: molecule_pasarguard_cert
+
+    - name: Assert PasarGuard certificate fetch artifact exists
+      ansible.builtin.assert:
+        that:
+          - molecule_pasarguard_cert.stat.exists
+          - molecule_pasarguard_cert.stat.size > 0

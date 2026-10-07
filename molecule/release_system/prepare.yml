@@ -1,0 +1,169 @@
+---
+- name: Prepare release qualification targets
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Ensure OpenSSH runtime directory exists after systemd boot
+      ansible.builtin.file:
+        path: /run/sshd
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Ensure CI fixture directory exists
+      ansible.builtin.file:
+        path: /opt/ci-fixtures
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install mock FloatIP utility fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/floatip
+        owner: root
+        group: root
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          echo "floatip-ci-fixture"
+
+    - name: Install mock PasarGuard installer fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/mock-pg-installer.sh
+        owner: root
+        group: root
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          install -d -m 0755 /opt/pg-node /var/lib/pg-node/certs
+          cat > /usr/local/bin/pg-node <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [[ "${1:-}" == "restart" ]]; then
+            printf '%s\n' restart >> /var/log/pg-node-ci-restarts.log
+          fi
+          exit 0
+          EOF
+          chmod 0755 /usr/local/bin/pg-node
+          printf '%s\n' 'SERVICE_PROTOCOL="grpc"' > /opt/pg-node/.env
+          printf '%s\n' 'ci-certificate' > /var/lib/pg-node/certs/ssl_cert.pem
+
+    - name: Install abuse IP list fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/abuse-ips.ipv4
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          203.0.113.10
+          198.51.100.0/24
+
+    - name: Install mock Speedtest command fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/speedtest
+        owner: root
+        group: root
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          echo "Speedtest by Ookla CI fixture 1.2.0"
+
+    - name: Build mock Speedtest archive
+      ansible.builtin.command:
+        argv:
+          - tar
+          - -czf
+          - /opt/ci-fixtures/speedtest.tgz
+          - -C
+          - /opt/ci-fixtures
+          - speedtest
+      args:
+        creates: /opt/ci-fixtures/speedtest.tgz
+
+    - name: Start local fixture HTTP server
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if ! kill -0 "$(cat /run/ci-fixture-http.pid 2>/dev/null)" 2>/dev/null; then
+          nohup python3 -m http.server 18080             --bind 127.0.0.1             --directory /opt/ci-fixtures             >/var/log/ci-fixture-http.log 2>&1 &
+          echo "$!" >/run/ci-fixture-http.pid
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Wait for local fixture HTTP server
+      ansible.builtin.uri:
+        url: http://127.0.0.1:18080/floatip
+        return_content: false
+        status_code: 200
+      register: molecule_fixture_http
+      retries: 10
+      delay: 1
+      until: molecule_fixture_http.status == 200
+
+    - name: Ensure Docker firewall anchor exists in test namespace
+      ansible.builtin.command:
+        argv:
+          - iptables
+          - -N
+          - DOCKER-USER
+      register: molecule_docker_user_chain
+      changed_when: molecule_docker_user_chain.rc == 0
+      failed_when: molecule_docker_user_chain.rc not in [0, 1]
+
+    - name: Ensure ubuntu test user exists
+      ansible.builtin.user:
+        name: ubuntu
+        create_home: true
+        shell: /bin/bash
+
+- name: Prepare controller-side release fixtures
+  hosts: all
+  gather_facts: false
+  become: false
+  run_once: true
+  tasks:
+    - name: Reset controller fixture directory
+      ansible.builtin.file:
+        path: /tmp/ansible-release-controller
+        state: absent
+      delegate_to: localhost
+
+    - name: Create controller fixture directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0700"
+      loop:
+        - /tmp/ansible-release-controller
+        - /tmp/ansible-release-controller/ssh
+        - /tmp/ansible-release-controller/targets
+        - /tmp/ansible-release-controller/certs
+      delegate_to: localhost
+
+    - name: Seed controller known_hosts fixture
+      ansible.builtin.copy:
+        dest: /tmp/ansible-release-controller/ssh/known_hosts
+        mode: "0600"
+        content: |
+          {% set key = (lookup('file', playbook_dir ~ '/../../tests/fixtures/ci_ed25519.pub')).split()[1] %}
+          {% for host in groups['all'] %}
+          {{ host }} ssh-ed25519 {{ key }}
+          {% endfor %}
+      delegate_to: localhost
+
+    - name: Seed controller SSH config fixture
+      ansible.builtin.copy:
+        dest: /tmp/ansible-release-controller/ssh/config
+        mode: "0600"
+        content: |
+          Host external-ci-host
+            HostName 192.0.2.250
+            User root
+      delegate_to: localhost

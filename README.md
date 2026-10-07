@@ -39,7 +39,7 @@ Ongoing fleet system upgrades, security-update policy, ICMP control, and optimiz
 - RAM-aware, non-regressive BBR/conntrack/TCP tuning with Ansible check-mode support
 - Ansible Vault integration for secrets and environment-specific values
 - Public repository sanitization for safe portfolio use
-- Local linting and syntax validation with sanitized example inventory
+- GitHub Actions CI with pinned validation tooling and sanitized example inventory
 
 ---
 
@@ -301,22 +301,33 @@ This playbook is intentionally **not** part of `site.yml`.
 
 `playbooks/operations/security-updates.yml` applies the `security_updates` role to `pasarguard_nodes`, one host at a time.
 
-It configures Ubuntu automatic security patching using `unattended-upgrades`.
+It configures Debian-family hosts for automatic security patching using `unattended-upgrades` and manages `needrestart` explicitly.
 
 The role:
 
-- installs `unattended-upgrades`
-- installs `apt-listchanges`
+- installs `unattended-upgrades`, `apt-listchanges`, and `needrestart`
 - enables periodic package-list refreshes
 - enables unattended security updates
 - limits automatic installation to security updates
-- disables automatic rebooting
+- disables automatic rebooting by default
+- keeps `needrestart` in automatic mode for ordinary services by default
+- prevents `systemd-networkd.service`, `networking.service`, and `NetworkManager.service` from being restarted automatically
+- supports `security_updates_needrestart_mode: "l"` when every service restart should be deferred to a maintenance window
 
-Automatic reboot is intentionally disabled.
+Ubuntu 24.04 and later can automatically restart affected services after APT transactions. The network-service exclusions are intentional: restarting the active network manager can interrupt connectivity and can remove runtime-only secondary or floating addresses until their persistent configuration is reapplied.
 
-Reboots remain a controlled maintenance operation and can be handled through `system-update.yml`.
+The default policy therefore keeps security packages installing automatically while deferring critical network-manager restarts. Other affected services can still be restarted automatically so patched libraries take effect promptly.
 
-Run:
+Automatic reboot remains disabled. Reboots and any deferred critical-service restarts are controlled maintenance actions and can be coordinated with `system-update.yml`.
+
+Run on one canary first:
+
+```bash
+ansible-playbook playbooks/operations/security-updates.yml \
+  --limit SERVER_NAME
+```
+
+Then roll out to the fleet:
 
 ```bash
 ansible-playbook playbooks/operations/security-updates.yml
@@ -642,38 +653,74 @@ Never commit:
 
 ---
 
-# Dependencies
+# CI and Validation
 
-Use a Python virtual environment for local validation. Install the developer tools and the project's pinned Ansible Galaxy collections:
+GitHub Actions is the authoritative validation environment for pull requests and protected branches. The Ansible controller does not need Python development packages, `ansible-lint`, `yamllint`, or Galaxy validation dependencies installed merely to validate repository changes.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements-dev.txt
-ansible-galaxy collection install -r requirements.yml
+The workflow is defined in:
+
+```text
+.github/workflows/ci.yml
 ```
 
----
+It runs for pull requests targeting `development` or `main`, for pushes to those protected branches, and by manual workflow dispatch.
 
-# Validation
+The CI workflow has a stable final status named `CI Gate`.
 
-Run the repository's safe local validation command:
+1. **Repository Validation**
+   - checks out the full repository history without persisting GitHub credentials
+   - uses Ubuntu 24.04 with Python 3.13
+   - installs the exact versions pinned in `requirements-dev.txt`
+   - installs the exact Ansible collections pinned in `requirements.yml`
+   - runs `./scripts/validate.sh`
+   - validates the sanitized example inventory structure
+   - renders and syntax-checks the managed `needrestart` configuration
+2. **Molecule Integration**
+   - creates disposable Docker targets for Ubuntu 24.04 and Ubuntu 26.04
+   - applies the CI-safe `base_packages` and `security_updates` roles
+   - reruns convergence and fails if the second run changes state
+   - verifies installed packages and generated security-update configuration
+   - destroys the test containers after the scenario
+3. **Full Release Qualification**
+   - runs on `development`, `main`, and pull requests targeting `main`
+   - uses disposable privileged systemd containers for Ubuntu 24.04 and Ubuntu 26.04
+   - exercises controller-side SSH configuration and known-host cleanup against sandbox files
+   - exercises hostname, resolver, SSH hardening, monitoring, FloatIP installer, Speedtest installer, PasarGuard with a mock installer, watchdog, Abuse Firewall, and Debian system-update behavior
+   - runs Molecule idempotency across the release-system scenario
+   - contract-tests Cloudflare, Docker, FloatIP separation, optimization non-goals, and branch/playbook topology without contacting provider APIs
+   - exercises optimization tier/capacity calculations with synthetic host facts
+   - renders optimization, firewall, and watchdog artifacts and validates them with Bash syntax checks, ShellCheck, and `systemd-analyze verify`
 
-```bash
-./scripts/validate.sh
+For normal feature/fix PRs targeting `development`, Full Release Qualification is skipped to keep feedback fast. It becomes mandatory on the protected promotion path to `main`. The final `CI Gate` fails whenever a mandatory release qualification run does not succeed.
+
+The Python validation and integration-test toolchain is pinned for reproducibility:
+
+```text
+ansible-core==2.21.5
+ansible-lint==26.9.0
+yamllint==1.38.0
+molecule==26.9.0
+molecule-plugins[docker]==26.7.15
+docker==7.2.0
 ```
 
-It checks Git diff formatting, shows repository status, runs `yamllint` and `ansible-lint`, syntax-checks every playbook, verifies the required operational playbooks, and rejects tracked production inventory or Vault files. Bootstrap syntax checking supplies a safe `bootstrap_host`. Ansible checks use an isolated copy of the example inventory and sanitized group variables, so ignored production files beside the example inventory are not loaded. The command does not contact production hosts.
+The Galaxy collections are also version-pinned in `requirements.yml`, including `community.docker` for the Molecule Docker driver.
 
-A few existing task-specific ansible-lint findings are narrowly ignored to preserve production behavior. The existing Docker `apt_repository` deprecation warning is outside this documentation phase.
+`scripts/validate.sh` checks PR diff formatting, YAML lint, Ansible lint, syntax-checks every playbook using an isolated copy of the sanitized example inventory, verifies required operational playbooks, and rejects accidentally tracked production inventory, Vault data, private-key-style filenames, and private-key material.
 
-Production inventory validation, connectivity checks, and deployment testing remain operator-controlled. Do not use the repository's default inventory for local validation.
+CI uses no production SSH keys, Vault passwords, Cloudflare tokens, or production inventory and does not contact production hosts. Molecule and Full Release Qualification operate only on disposable containers, generated fixtures, and sandbox controller paths inside the GitHub-hosted runner.
+
+Local validation remains available only as an optional developer convenience. If desired, create a disposable local virtual environment and install the same pinned dependencies, but local validation is not required before opening or merging a PR.
+
+A few existing task-specific ansible-lint findings remain narrowly ignored to preserve production behavior. The existing Docker `apt_repository` deprecation warning remains outside this CI phase.
+
+Production connectivity, deployment, application behavior, and reboot/network verification remain manual operator responsibilities after the repository CI gate passes.
 
 ---
 
 # Reliability and Idempotency
 
-Repeated runs should normally report `ok` for already-correct SSH security, Cloudflare DNS records, hostname, resolver settings, baseline packages, controller SSH shortcuts, and monitoring target generation. Ubuntu SSH-user detection is safe in Ansible check mode. Docker, PasarGuard installation and configuration, and watchdog deployment also use state checks where their implementation supports them.
+Repeated runs should normally report `ok` for already-correct SSH security, Cloudflare DNS records, hostname, resolver settings, baseline packages, controller SSH shortcuts, and monitoring target generation. Ubuntu SSH-user detection is safe in Ansible check mode. GitHub Actions enforces Molecule idempotency for `base_packages` and `security_updates`, and Full Release Qualification expands idempotency coverage across the release-system scenario on disposable Ubuntu 24.04 and 26.04 containers.
 
 The native `optimization` operation is also designed for idempotent normal runs and supports `--check --diff`. A first migration run can legitimately report changes while it installs repository-owned tuning files and retires old ServerTools artifacts; once converged, repeated normal runs should report no changes unless the host state or desired variables changed. Local linting and syntax checks validate repository structure; the operator must still verify actual access, DNS, monitoring, networking, and reboot behavior in the production environment.
 
@@ -738,6 +785,7 @@ This project demonstrates hands-on experience with:
 - firewall automation
 - native BBR/TCP/conntrack capacity tuning
 - Ansible check-mode and idempotency validation
+- Molecule integration testing on Ubuntu 24.04 and 26.04
 - floating/secondary IP tooling
 - pinned operational CLI deployment
 - controlled rolling maintenance
@@ -753,13 +801,11 @@ This project demonstrates hands-on experience with:
 
 Potential future improvements:
 
-- GitHub Actions CI using sanitized example inventory
 - secret scanning
 - stronger operational timeout handling
 - improved APT lock handling
 - role-specific documentation
-- Molecule testing
-- automated idempotency testing
+- expand isolated coverage for provider-backed roles without introducing production credentials
 - additional monitoring and alerting
 - checksum/signature validation for externally downloaded operational artifacts
 - versioned releases and changelog

@@ -1,0 +1,26 @@
+---
+- name: Set synthetic optimization facts
+  ansible.builtin.set_fact:
+    ansible_facts: >-
+      {{
+        ansible_facts | default({})
+        | combine({'memtotal_mb': optimization_case.memtotal_mb})
+      }}
+    optimization_expected_users: "{{ optimization_case.expected_users | default(0) }}"
+
+- name: Calculate optimization capacity for synthetic host
+  ansible.builtin.include_tasks:
+    file: ../../roles/optimization/tasks/capacity.yml
+
+- name: Assert optimization tier and non-regressive ceilings
+  ansible.builtin.assert:
+    that:
+      - optimization_tier_name == optimization_case.expected_tier
+      - optimization_somaxconn | int >= optimization_live_sysctl['net.core.somaxconn'] | int
+      - optimization_netdev_backlog | int >= optimization_live_sysctl['net.core.netdev_max_backlog'] | int
+      - optimization_rmem_max | int >= optimization_live_sysctl['net.core.rmem_max'] | int
+      - optimization_wmem_max | int >= optimization_live_sysctl['net.core.wmem_max'] | int
+      - optimization_conntrack_max | int >= optimization_live_sysctl['net.netfilter.nf_conntrack_max'] | int
+      - optimization_tcp_rmem | length == 3
+      - optimization_tcp_wmem | length == 3
+    fail_msg: "Optimization capacity contract failed for {{ optimization_case.name }}"

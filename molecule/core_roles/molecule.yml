@@ -1,0 +1,34 @@
+---
+driver:
+  name: docker
+
+platforms:
+  - name: ubuntu-2404
+    image: ubuntu:24.04
+    dockerfile: Dockerfile.j2
+    pre_build_image: false
+    command: sleep infinity
+    tty: true
+
+  - name: ubuntu-2604
+    image: ubuntu:26.04
+    dockerfile: Dockerfile.j2
+    pre_build_image: false
+    command: sleep infinity
+    tty: true
+
+provisioner:
+  name: ansible
+
+verifier:
+  name: ansible
+
+scenario:
+  test_sequence:
+    - destroy
+    - syntax
+    - create
+    - converge
+    - idempotence
+    - verify
+    - destroy
