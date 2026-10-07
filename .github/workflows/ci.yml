@@ -124,7 +124,17 @@ jobs:
             - NetworkManager.service
           YAML
 
-          ansible localhost             --connection=local             -m ansible.builtin.template             -a "src=roles/security_updates/templates/needrestart-security-updates.conf.j2 dest=$work_dir/needrestart.conf mode=0600"             -e "@$work_dir/vars.yml"
+          template_args="src=roles/security_updates/templates/needrestart-security-updates.conf.j2"
+          template_args+=" dest=$work_dir/needrestart.conf mode=0600"
+
+          ansible_args=(
+            localhost
+            --connection=local
+            -m ansible.builtin.template
+            -a "$template_args"
+            -e "@$work_dir/vars.yml"
+          )
+          ansible "${ansible_args[@]}"
 
           perl -c "$work_dir/needrestart.conf"
           grep -Fq "\$nrconf{restart} = 'a';" "$work_dir/needrestart.conf"
