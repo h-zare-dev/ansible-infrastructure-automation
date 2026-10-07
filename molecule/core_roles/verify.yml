@@ -1,0 +1,88 @@
+---
+- name: Verify CI-safe core roles
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    expected_packages:
+      - apt-listchanges
+      - btop
+      - cron
+      - curl
+      - needrestart
+      - unattended-upgrades
+  tasks:
+    - name: Verify expected packages are installed
+      ansible.builtin.command:
+        argv:
+          - dpkg-query
+          - --show
+          - '--showformat=${Status}'
+          - "{{ item }}"
+      loop: "{{ expected_packages }}"
+      register: molecule_package_query
+      changed_when: false
+      failed_when:
+        - molecule_package_query.rc != 0
+        - "'install ok installed' not in molecule_package_query.stdout"
+
+    - name: Check managed security update files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/apt/apt.conf.d/20auto-upgrades
+        - /etc/apt/apt.conf.d/52unattended-upgrades-local
+        - /etc/needrestart/conf.d/60-ansible-security-updates.conf
+      register: molecule_managed_files
+
+    - name: Assert managed security update files exist
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isreg
+          - item.stat.mode == '0644'
+      loop: "{{ molecule_managed_files.results }}"
+
+    - name: Read unattended-upgrades configuration
+      ansible.builtin.slurp:
+        src: /etc/apt/apt.conf.d/52unattended-upgrades-local
+      register: molecule_unattended_config
+
+    - name: Read needrestart configuration
+      ansible.builtin.slurp:
+        src: /etc/needrestart/conf.d/60-ansible-security-updates.conf
+      register: molecule_needrestart_config
+
+    - name: Validate needrestart Perl syntax
+      ansible.builtin.command:
+        argv:
+          - perl
+          - -c
+          - /etc/needrestart/conf.d/60-ansible-security-updates.conf
+      changed_when: false
+
+    - name: Assert unattended security policy
+      ansible.builtin.assert:
+        that:
+          - >-
+            'Unattended-Upgrade::Automatic-Reboot "false";'
+            in (molecule_unattended_config.content | b64decode)
+          - >-
+            '${distro_id}:${distro_codename}-security'
+            in (molecule_unattended_config.content | b64decode)
+
+    - name: Assert protected needrestart policy
+      ansible.builtin.assert:
+        that:
+          - >-
+            "$nrconf{restart} = 'a';"
+            in (molecule_needrestart_config.content | b64decode)
+          - >-
+            'systemd\-networkd\.service'
+            in (molecule_needrestart_config.content | b64decode)
+          - >-
+            'networking\.service'
+            in (molecule_needrestart_config.content | b64decode)
+          - >-
+            'NetworkManager\.service'
+            in (molecule_needrestart_config.content | b64decode)
