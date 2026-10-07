@@ -1,0 +1,36 @@
+# Molecule managed release qualification image
+
+{% if item.registry is defined %}
+FROM {{ item.registry.url }}/{{ item.image }}
+{% else %}
+FROM {{ item.image }}
+{% endif %}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV container=docker
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       bash \
+       ca-certificates \
+       cron \
+       curl \
+       dbus \
+       iproute2 \
+       iptables \
+       kmod \
+       openssh-client \
+       openssh-server \
+       perl \
+       procps \
+       python3 \
+       python3-apt \
+       sudo \
+       systemd \
+       systemd-resolved \
+       systemd-sysv \
+       tar \
+    && mkdir -p /run/sshd \
+    && rm -rf /var/lib/apt/lists/*
+
+STOPSIGNAL SIGRTMIN+3
