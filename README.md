@@ -6,10 +6,10 @@ This repository uses focused Ansible roles for SSH access, DNS and baseline Linu
 
 The project is designed around two distinct workflows:
 
-1. **Initial server onboarding** — establish SSH access, create a Cloudflare DNS record, and update controller SSH shortcuts.
+1. **Initial server onboarding** — update the host, install baseline operational tooling, establish SSH access, create a Cloudflare DNS record, and update controller SSH shortcuts.
 2. **Ongoing desired-state management** — repeatedly apply configuration safely and idempotently.
 
-System upgrades, security update policy, ICMP control, and optimization are explicit independent operations.
+Ongoing fleet system upgrades, security-update policy, ICMP control, and optimization remain explicit operational actions. Bootstrap is the intentional exception for system updates: it runs `system_update` once during onboarding with reboot-on-required enabled.
 
 ---
 
@@ -190,6 +190,7 @@ This supports both cases:
 
 - a fresh password-only server can be onboarded safely
 - an already managed server remains compliant if SSH configuration is changed manually later
+
 ---
 
 # Cloudflare DNS Reuse
@@ -230,7 +231,7 @@ Optimization, full system upgrades, ICMP policy changes, and security-update pol
 
 ## `bootstrap.yml`
 
-SSH, Cloudflare DNS, and controller SSH shortcut onboarding for a new or rebuilt server. Bootstrap clears the selected target's controller host-key entries before connecting; `site.yml` does not run this cleanup.
+Initial update/tooling, SSH, Cloudflare DNS, and controller SSH shortcut onboarding for a new or rebuilt server. Bootstrap clears the selected target's controller host-key entries before connecting, performs the configured system update (including a required reboot), installs the pinned operational tools, and then establishes the managed SSH/DNS/controller state. `site.yml` does not run the host-key cleanup or the system-update operation.
 
 ```bash
 ansible-playbook playbooks/bootstrap.yml \
@@ -267,16 +268,9 @@ Keeping these operations separate avoids adding them to ordinary configuration r
 
 ## Controlled System Updates
 
-`playbooks/operations/system-update.yml` performs controlled package maintenance on `pasarguard_nodes`.
+`playbooks/operations/system-update.yml` performs controlled package maintenance on `pasarguard_nodes`. The underlying `system_update` role supports Debian-family and RedHat-family hosts.
 
-It:
-
-- refreshes the APT package cache
-- performs distribution upgrades
-- removes unused dependencies
-- cleans obsolete package files
-- checks `/var/run/reboot-required`
-- reboots only when required
+On Debian-family hosts it refreshes APT metadata, performs a distribution upgrade, removes unused dependencies, cleans obsolete package files, and checks `/var/run/reboot-required`. On RedHat-family hosts it updates installed packages through `dnf` and uses `needs-restarting -r` when available to determine reboot need. In both cases the operational playbook reboots only when the role reports that a reboot is required.
 
 The playbook uses:
 
