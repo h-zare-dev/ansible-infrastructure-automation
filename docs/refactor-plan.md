@@ -1,6 +1,8 @@
 # Refactor Plan
 
-Historical plan for the completed refactor. The branch names and phase instructions below record the original workflow; the current default branch is `development`, with feature PRs targeting it and a later PR from `development` to `main`. Current playbook behavior is documented in the README.
+Historical plan for the completed refactor. The branch names and phase instructions below record the original workflow and must not be read as the current operational contract.
+
+Current state: `development` is the development branch, feature/fix branches target it through PRs, and validated `development` changes are later promoted to `main` through a separate PR. Since this historical refactor, bootstrap gained `system_update`, `speedtest_cli`, and `floatip_manager`; `site.yml` gained `speedtest_cli` and `floatip_manager`; and optimization was replaced with a repository-owned native role whose default target is `common` rather than `pasarguard_nodes`. Current behavior is documented in the README and `docs/native-vpn-optimization.md`.
 
 ## Goal
 
@@ -159,7 +161,7 @@ bootstrap.yml
 ```
 
 ```text
-site.yml (current implementation)
+site.yml (implementation at the end of this historical refactor)
 ├── all: ssh_security, controller_ssh_config, cloudflare_dns,
 │   hostname, dns_resolver, base_packages, monitoring
 └── pasarguard_nodes: docker, pasarguard, pasarguard_watchdog,
