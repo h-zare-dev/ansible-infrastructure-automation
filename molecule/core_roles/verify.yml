@@ -22,9 +22,9 @@
       loop: "{{ expected_packages }}"
       register: molecule_package_query
       changed_when: false
-      failed_when:
-        - molecule_package_query.rc != 0
-        - "'install ok installed' not in molecule_package_query.stdout"
+      failed_when: >-
+        molecule_package_query.rc != 0
+        or 'install ok installed' not in molecule_package_query.stdout
 
     - name: Check managed security update files
       ansible.builtin.stat:
