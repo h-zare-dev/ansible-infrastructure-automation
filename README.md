@@ -2,14 +2,14 @@
 
 Production-oriented Ansible project for provisioning, securing, monitoring, and operating a multi-node Linux infrastructure.
 
-This repository uses focused Ansible roles for SSH access, DNS and baseline Linux setup, Docker, Prometheus monitoring, PasarGuard nodes, watchdog automation, firewall controls, and controlled maintenance.
+This repository uses focused Ansible roles for SSH access, DNS and baseline Linux setup, pinned operational tooling, Docker, Prometheus monitoring, PasarGuard nodes, watchdog automation, firewall controls, native network tuning, and controlled maintenance.
 
 The project is designed around two distinct workflows:
 
-1. **Initial server onboarding** — establish SSH access, create a Cloudflare DNS record, and update controller SSH shortcuts.
+1. **Initial server onboarding** — update the host, install baseline operational tooling, establish SSH access, create a Cloudflare DNS record, and update controller SSH shortcuts.
 2. **Ongoing desired-state management** — repeatedly apply configuration safely and idempotently.
 
-System upgrades, security update policy, ICMP control, and optimization are explicit independent operations.
+Ongoing fleet system upgrades, security-update policy, ICMP control, and optimization remain explicit operational actions. Bootstrap is the intentional exception for system updates: it runs `system_update` once during onboarding with reboot-on-required enabled.
 
 ---
 
@@ -33,7 +33,10 @@ System upgrades, security update policy, ICMP control, and optimization are expl
 - Controlled rolling system upgrades with automatic reboot detection
 - Automatic security patching with `unattended-upgrades`
 - Automatic reboot disabled for unattended security updates
-- Independent operational playbooks for system updates, security updates, and ping control
+- Independent operational playbooks for system updates, security updates, ping control, and native network optimization
+- Pinned Ookla Speedtest CLI installation on supported hosts
+- Pinned `floatip-manager` installation on detected Hetzner hosts
+- RAM-aware, non-regressive BBR/conntrack/TCP tuning with Ansible check-mode support
 - Ansible Vault integration for secrets and environment-specific values
 - Public repository sanitization for safe portfolio use
 - Local linting and syntax validation with sanitized example inventory
@@ -52,6 +55,7 @@ ansible-infrastructure-automation/
 ├── requirements-dev.txt
 ├── requirements.yml
 ├── docs/
+│   ├── native-vpn-optimization.md
 │   └── refactor-plan.md
 ├── inventory/
 │   ├── hosts.example.ini
@@ -79,13 +83,16 @@ ansible-infrastructure-automation/
     ├── controller_ssh_config/
     ├── dns_resolver/
     ├── docker/
+    ├── floatip_manager/
     ├── hostname/
     ├── monitoring/
     ├── optimization/
     ├── pasarguard/
     ├── pasarguard_watchdog/
     ├── security_updates/
-    └── ssh_security/
+    ├── speedtest_cli/
+    ├── ssh_security/
+    └── system_update/
 ```
 
 Production inventory, Vault data, Vault password files, private keys, and credentials are excluded from version control.
@@ -106,12 +113,15 @@ The correct onboarding sequence is:
 Fresh server
   → add host to inventory
   → bootstrap.yml
-      → controller_known_hosts (before remote fact gathering)
+      → controller_known_hosts (controller-side cleanup before remote fact gathering)
+      → system_update (reboot when required)
+      → speedtest_cli
+      → floatip_manager (Hetzner hosts only)
       → ssh_security
       → cloudflare_dns
       → controller_ssh_config
   → site.yml
-      → focused role orchestration
+      → focused desired-state role orchestration
 ```
 
 ### Step 1 — Add the host to inventory
@@ -127,7 +137,7 @@ node-01 ansible_host=192.0.2.10
 
 Use the correct connection variables for the environment.
 
-### Step 2 — Bootstrap SSH, DNS, and the controller shortcut
+### Step 2 — Bootstrap the server and controller access
 
 Run:
 
@@ -138,8 +148,11 @@ ansible-playbook playbooks/bootstrap.yml \
 
 `bootstrap.yml` targets `bootstrap_host`. Its first play disables fact gathering and runs `controller_known_hosts` entirely on localhost, before any SSH connection to the server. It uses `ssh-keygen -F` and `ssh-keygen -R` to remove only that target's entries from the controller user's `~/.ssh/known_hosts`, including hashed entries. It checks both `ansible_host` (falling back to the inventory hostname) and the inventory hostname, including its lowercase SSH alias. For a nonstandard `ansible_port`, it also checks `[hostname]:port` and `[IP]:port` entries. Missing files or matching entries require no changes.
 
-The remote play uses Vault-provided SSH and privilege-escalation passwords. Its role order remains `ssh_security`, `cloudflare_dns`, `controller_ssh_config`:
+The remote bootstrap play uses Vault-provided SSH and privilege-escalation passwords. Its current role order is `system_update`, `speedtest_cli`, `floatip_manager`, `ssh_security`, `cloudflare_dns`, `controller_ssh_config`:
 
+- `system_update` performs the platform-aware update and may reboot when the host reports that a reboot is required.
+- `speedtest_cli` installs the pinned Ookla Speedtest CLI on the currently supported architecture.
+- `floatip_manager` installs the pinned `floatip` command only when Ansible detects a Hetzner system vendor; it does not add or remove addresses during installation.
 - `ssh_security` installs the managed public key, applies SSH hardening, and restarts SSH when its configuration changes.
 - `cloudflare_dns` creates or updates the host's Cloudflare A record.
 - `controller_ssh_config` updates the controller user's SSH shortcuts from the complete inventory, even though bootstrap targets only one host.
@@ -192,10 +205,10 @@ This supports both cases:
 
 `site.yml` is the primary desired-state configuration entry point. It has two logical plays with separate, single-responsibility roles:
 
-1. **All managed servers** — gathers facts once, then runs `ssh_security`, `controller_ssh_config`, `cloudflare_dns`, `hostname`, `dns_resolver`, `base_packages`, and `monitoring` in that order. Controller SSH shortcuts and monitoring targets are generated on the controller.
+1. **All managed servers** — gathers facts once, then runs `ssh_security`, `controller_ssh_config`, `cloudflare_dns`, `hostname`, `dns_resolver`, `base_packages`, `speedtest_cli`, `floatip_manager`, and `monitoring` in that order. `floatip_manager` is conditional on Hetzner detection. Controller SSH shortcuts and monitoring targets are generated on the controller.
 2. **`pasarguard_nodes`** — sets `gather_facts: false` and runs `docker`, `pasarguard`, and `pasarguard_watchdog`, followed by `abuse_firewall` only for hosts also in `abuse_protected`.
 
-An inventory host runs only the plays whose host groups include it. `all` includes inventory hosts without requiring an explicit `[all]` section. DNS resolver configuration belongs to `dns_resolver`; the standalone ServerTools optimization does not manage DNS.
+An inventory host runs only the plays whose host groups include it. `all` includes inventory hosts without requiring an explicit `[all]` section. DNS resolver configuration belongs to `dns_resolver`; the native `optimization` role deliberately leaves DNS untouched.
 
 Run on all applicable managed hosts:
 
@@ -218,7 +231,7 @@ Optimization, full system upgrades, ICMP policy changes, and security-update pol
 
 ## `bootstrap.yml`
 
-SSH, Cloudflare DNS, and controller SSH shortcut onboarding for a new or rebuilt server. Bootstrap clears the selected target's controller host-key entries before connecting; `site.yml` does not run this cleanup.
+Initial update/tooling, SSH, Cloudflare DNS, and controller SSH shortcut onboarding for a new or rebuilt server. Bootstrap clears the selected target's controller host-key entries before connecting, performs the configured system update (including a required reboot), installs the pinned operational tools, and then establishes the managed SSH/DNS/controller state. `site.yml` does not run the host-key cleanup or the system-update operation.
 
 ```bash
 ansible-playbook playbooks/bootstrap.yml \
@@ -255,16 +268,9 @@ Keeping these operations separate avoids adding them to ordinary configuration r
 
 ## Controlled System Updates
 
-`playbooks/operations/system-update.yml` performs controlled package maintenance on `pasarguard_nodes`.
+`playbooks/operations/system-update.yml` performs controlled package maintenance on `pasarguard_nodes`. The underlying `system_update` role supports Debian-family and RedHat-family hosts.
 
-It:
-
-- refreshes the APT package cache
-- performs distribution upgrades
-- removes unused dependencies
-- cleans obsolete package files
-- checks `/var/run/reboot-required`
-- reboots only when required
+On Debian-family hosts it refreshes APT metadata, performs a distribution upgrade, removes unused dependencies, cleans obsolete package files, and checks `/var/run/reboot-required`. On RedHat-family hosts it updates installed packages through `dnf` and uses `needs-restarting -r` when available to determine reboot need. In both cases the operational playbook reboots only when the role reports that a reboot is required.
 
 The playbook uses:
 
@@ -320,13 +326,24 @@ This playbook is intentionally separate from `site.yml`.
 
 ## Optimization
 
-Optimization is run only through `playbooks/operations/optimize.yml`, which targets `pasarguard_nodes`. It is not applied by `site.yml`.
+Optimization is run only through `playbooks/operations/optimize.yml`; it is not applied by `site.yml`. The playbook defaults to the `common` inventory group and accepts an explicit `optimize_hosts` host-pattern override.
 
 ```bash
 ansible-playbook playbooks/operations/optimize.yml
+
+# Preview without applying changes
+ansible-playbook playbooks/operations/optimize.yml --check --diff
+
+# Override the play target for a canary that is outside `common`
+ansible-playbook playbooks/operations/optimize.yml \
+  -e optimize_hosts=Test-DE
 ```
 
-Run it explicitly when required, optionally with `--limit SERVER_NAME`. The role invokes an external ServerTools optimization script and does not manage DNS; `dns_resolver` owns that configuration. It should not be treated as a task that always reports `ok` on a repeat run.
+The repository now owns the complete `optimization` role; it no longer downloads or executes ServerTools. The role selects RAM-aware S/M/L/XL capacity tiers, preserves already-higher kernel capacity values, can incorporate `optimization_expected_users`, configures supported BBR/qdisc settings, manages file-descriptor and optional CPU/NIC tuning, caps journald, enables NTP when available, and safely retires conflicting files from the former ServerTools integration.
+
+Before and after tuning it verifies critical live sysctls and checks that the default route, interface IPv4 address set, resolver file, live qdisc (unless explicitly opted in), and running Docker container set were not unexpectedly changed. Normal repeat runs are designed to be idempotent; check mode uses read-only probes and predicts supported kernel modules without loading them.
+
+See [`docs/native-vpn-optimization.md`](docs/native-vpn-optimization.md) for the exact scope, safety boundaries, capacity tiers, check-mode behavior, and validation workflow.
 
 ## ICMP / Ping Control
 
@@ -342,23 +359,27 @@ This is also intentionally excluded from `site.yml`.
 
 # Role Responsibilities
 
-The former `common` role was split into `cloudflare_dns`, `hostname`, `dns_resolver`, and `base_packages`. Each role now has one defined responsibility.
+The former `common` role was split into focused responsibilities. Current roles are:
 
 | Role | Responsibility |
 | --- | --- |
 | `ssh_security` | Install the managed SSH public key and enforce server SSH policy. |
+| `controller_known_hosts` | Remove only the bootstrap target's stale controller `known_hosts` entries before first connection. |
+| `controller_ssh_config` | Maintain inventory-derived SSH shortcuts on the controller. |
 | `cloudflare_dns` | Manage the host's Cloudflare A record from inventory. |
 | `hostname` | Set the lowercase inventory name as the system hostname. |
 | `dns_resolver` | Configure systemd-resolved DNS and restart it when needed. |
 | `base_packages` | Install the baseline APT packages. |
-| `controller_ssh_config` | Maintain inventory-derived SSH shortcuts on the controller. |
+| `speedtest_cli` | Install pinned Ookla Speedtest CLI 1.2.0; currently validates `x86_64`. |
+| `floatip_manager` | Install the pinned `floatip` command on detected Hetzner hosts without changing addresses during installation. |
 | `monitoring` | Install Node Exporter and generate inventory-driven Prometheus targets. |
 | `docker` | Install and start Docker Engine and its plugins. |
 | `pasarguard` | Install and configure the PasarGuard node. |
 | `pasarguard_watchdog` | Deploy the memory watchdog and schedule it with cron. |
 | `abuse_firewall` | Deploy selected-host firewall updates and a daily refresh job. |
-| `optimization` | Invoke the external optimization script. |
+| `optimization` | Apply repository-owned native network-host tuning and verification. |
 | `security_updates` | Configure unattended security updates through its operational playbook. |
+| `system_update` | Perform platform-aware package maintenance and optional reboot handling. |
 
 `base_packages` installs exactly:
 
@@ -382,7 +403,28 @@ Aliases and DNS hostnames use lowercase inventory names. For example, inventory 
 
 The role safely handles a missing SSH config in both normal and check-mode runs. A normal run creates the file before reading and managing it; check mode validates the missing-file case without requiring the file to be written. It owns one clearly marked block in the config, placing it after global directives and before the first `Host` or `Match` section so inventory-specific values can precede generic options such as `Host *`. It does not rewrite unrelated manual entries, `Include` directives, comments, or formatting. A manually defined alias that conflicts case-insensitively with an inventory alias causes a clear failure; the role does not overwrite it. It also rejects inventory names that would produce duplicate lowercase aliases.
 
-Adding or removing inventory hosts, or changing their `ansible_user`, updates only the managed block. Repeating the same run leaves it unchanged. The role does not manage private keys, `known_hosts`, or SSH server configuration.
+Adding or removing inventory hosts, or changing their `ansible_user`, updates only the managed block. Repeating the same run leaves it unchanged. The role does not manage private keys or SSH server configuration; bootstrap host-key cleanup belongs to the separate `controller_known_hosts` role.
+
+The managed block also does not own a controller `IdentityFile`. If the controller uses the project convention of `~/.ssh/ansible_ssh_key`, keep that setting outside the Ansible-managed inventory block, for example:
+
+```ssh
+Host *
+  IdentityFile ~/.ssh/ansible_ssh_key
+```
+
+The public half is read from the controller path referenced by `vault_ssh_public_key_path` and copied into the remote user's `authorized_keys`. Renaming the controller key files therefore requires updating the local SSH `IdentityFile` for the private key and the Vault path for the `.pub` file; remote servers do not store or depend on the controller-side filename.
+
+---
+
+# Operational Tools Installed on Managed Hosts
+
+## Ookla Speedtest CLI
+
+`speedtest_cli` installs Ookla Speedtest CLI version `1.2.0` at `/usr/local/bin/speedtest` from the pinned role defaults. The archive is cached under `/var/cache/ookla-speedtest/<version>`. The current role intentionally validates `x86_64`; unsupported architectures fail clearly instead of silently installing the wrong binary.
+
+## Floating IP Manager
+
+`floatip_manager` installs a commit-pinned copy of `h-zare-dev/floatip-manager` as `/usr/local/sbin/floatip` only on hosts whose detected system vendor contains `hetzner`. Installation itself does not add, delete, or replace any floating IP. Address management remains an explicit operator action through the installed command.
 
 ---
 
@@ -519,6 +561,7 @@ The public example inventory demonstrates functional host grouping.
 Current groups include:
 
 - `all` — every inventory host; Ansible provides this group without an explicit `[all]` section
+- `common` — default target group for the standalone native optimization playbook
 - `pasarguard_nodes` — application nodes managed by the main deployment
 - `ssh_ubuntu` — hosts accessed through an `ubuntu` user with privilege escalation
 - `abuse_protected` — hosts receiving additional firewall protection
@@ -537,9 +580,8 @@ Examples include:
 
 - bootstrap passwords
 - privilege-escalation credentials
-- API credentials
-- domain configuration
-- SSH public-key path
+- API credentials- domain configuration
+- controller-side SSH public-key path
 - external provider tokens
 
 The public repository contains only a safe example:
@@ -547,6 +589,14 @@ The public repository contains only a safe example:
 ```text
 inventory/group_vars/all/vault.yml.example
 ```
+
+The example follows the controller key naming convention:
+
+```yaml
+vault_ssh_public_key_path: "/root/.ssh/ansible_ssh_key.pub"
+```
+
+This variable is a controller-side file path, not a filename that must exist on managed servers.
 
 Create a local production copy:
 
@@ -625,7 +675,7 @@ Production inventory validation, connectivity checks, and deployment testing rem
 
 Repeated runs should normally report `ok` for already-correct SSH security, Cloudflare DNS records, hostname, resolver settings, baseline packages, controller SSH shortcuts, and monitoring target generation. Ubuntu SSH-user detection is safe in Ansible check mode. Docker, PasarGuard installation and configuration, and watchdog deployment also use state checks where their implementation supports them.
 
-Not every task is strongly idempotent. The standalone `optimization` operation runs an external script and may report a change on repeat runs. Local linting and syntax checks validate repository structure; the operator must check actual changes, access, DNS, monitoring, and reboot behavior in the production environment.
+The native `optimization` operation is also designed for idempotent normal runs and supports `--check --diff`. A first migration run can legitimately report changes while it installs repository-owned tuning files and retires old ServerTools artifacts; once converged, repeated normal runs should report no changes unless the host state or desired variables changed. Local linting and syntax checks validate repository structure; the operator must still verify actual access, DNS, monitoring, networking, and reboot behavior in the production environment.
 
 ---
 
@@ -636,7 +686,7 @@ For a newly provisioned password-only server:
 ```bash
 # 1. Add the server to inventory
 
-# 2. Bootstrap SSH, Cloudflare DNS, and controller SSH shortcuts
+# 2. Bootstrap updates/tooling, SSH, Cloudflare DNS, and controller shortcuts
 ansible-playbook playbooks/bootstrap.yml \
   -e bootstrap_host=NEW_SERVER
 
@@ -686,6 +736,10 @@ This project demonstrates hands-on experience with:
 - file-based service discovery
 - cron automation
 - firewall automation
+- native BBR/TCP/conntrack capacity tuning
+- Ansible check-mode and idempotency validation
+- floating/secondary IP tooling
+- pinned operational CLI deployment
 - controlled rolling maintenance
 - automatic security patching
 - reboot management
@@ -707,7 +761,7 @@ Potential future improvements:
 - Molecule testing
 - automated idempotency testing
 - additional monitoring and alerting
-- supply-chain hardening for external installation scripts
+- checksum/signature validation for externally downloaded operational artifacts
 - versioned releases and changelog
 - further firewall hardening
 - staging validation before production rollout
