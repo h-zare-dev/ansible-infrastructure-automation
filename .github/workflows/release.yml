@@ -20,6 +20,17 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Require main branch dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Release workflow must be dispatched from the main branch."
+            echo "Current ref: $GITHUB_REF"
+            exit 1
+          fi
+
       - name: Checkout main
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -42,23 +53,32 @@ jobs:
 
           bare_version="${VERSION#v}"
 
-          awk -v version="$bare_version" '
-            $0 ~ "^## \\[" version "\\] - " {
-              capture = 1
-              next
-            }
-            capture && /^## \\[/ {
-              exit
-            }
-            capture {
-              print
-            }
-          ' CHANGELOG.md > release-notes.md
+          BARE_VERSION="$bare_version" python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
 
-          if [[ ! -s release-notes.md ]]; then
-            echo "No CHANGELOG.md entry found for $bare_version"
-            exit 1
-          fi
+          version = os.environ["BARE_VERSION"]
+          lines = Path("CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+
+          header = re.compile(rf"^## \\[{re.escape(version)}\\] - .+$")
+          start = next((i for i, line in enumerate(lines) if header.match(line)), None)
+
+          if start is None:
+              raise SystemExit(f"No CHANGELOG.md entry found for {version}")
+
+          end = len(lines)
+          for i in range(start + 1, len(lines)):
+              if lines[i].startswith("## ["):
+                  end = i
+                  break
+
+          notes = "\n".join(lines[start + 1:end]).strip()
+          if not notes:
+              raise SystemExit(f"CHANGELOG.md entry for {version} is empty")
+
+          Path("release-notes.md").write_text(notes + "\n", encoding="utf-8")
+          PY
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
