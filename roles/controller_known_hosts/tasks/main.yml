@@ -46,4 +46,8 @@
       loop: "{{ controller_known_hosts_matches.results | selectattr('rc', 'defined') | selectattr('rc', 'equalto', 0) | list }}"
       loop_control:
         label: "{{ item.item }}"
+      # Every inventory host delegates writes to the same controller file.
+      # Serialize ssh-keygen -R so concurrent hosts cannot overwrite each
+      # other's removals through competing temporary-file replacements.
+      throttle: 1
       changed_when: true
