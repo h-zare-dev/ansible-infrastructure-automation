@@ -20,6 +20,17 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Require main branch dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Release workflow must be dispatched from the main branch."
+            echo "Current ref: $GITHUB_REF"
+            exit 1
+          fi
+
       - name: Checkout main
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -40,25 +51,9 @@ jobs:
             exit 1
           fi
 
-          bare_version="${VERSION#v}"
-
-          awk -v version="$bare_version" '
-            $0 ~ "^## \\[" version "\\] - " {
-              capture = 1
-              next
-            }
-            capture && /^## \\[/ {
-              exit
-            }
-            capture {
-              print
-            }
-          ' CHANGELOG.md > release-notes.md
-
-          if [[ ! -s release-notes.md ]]; then
-            echo "No CHANGELOG.md entry found for $bare_version"
-            exit 1
-          fi
+          python3 scripts/extract-release-notes.py \
+            --version "$VERSION" \
+            --output release-notes.md
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 

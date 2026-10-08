@@ -72,6 +72,15 @@ for playbook in "${playbooks[@]}"; do
 done
 
 echo
+echo "==> Validating release note extraction"
+release_notes_tmp="$(mktemp)"
+python3 scripts/extract-release-notes.py \
+  --version v1.0.0 \
+  --output "$release_notes_tmp"
+test -s "$release_notes_tmp"
+rm -f -- "$release_notes_tmp"
+
+echo
 echo "==> Checking required operational playbooks"
 
 required_files=(
