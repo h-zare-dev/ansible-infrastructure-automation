@@ -51,34 +51,9 @@ jobs:
             exit 1
           fi
 
-          bare_version="${VERSION#v}"
-
-          BARE_VERSION="$bare_version" python3 - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          version = os.environ["BARE_VERSION"]
-          lines = Path("CHANGELOG.md").read_text(encoding="utf-8").splitlines()
-
-          header = re.compile(rf"^## \\[{re.escape(version)}\\] - .+$")
-          start = next((i for i, line in enumerate(lines) if header.match(line)), None)
-
-          if start is None:
-              raise SystemExit(f"No CHANGELOG.md entry found for {version}")
-
-          end = len(lines)
-          for i in range(start + 1, len(lines)):
-              if lines[i].startswith("## ["):
-                  end = i
-                  break
-
-          notes = "\n".join(lines[start + 1:end]).strip()
-          if not notes:
-              raise SystemExit(f"CHANGELOG.md entry for {version} is empty")
-
-          Path("release-notes.md").write_text(notes + "\n", encoding="utf-8")
-          PY
+          python3 scripts/extract-release-notes.py \
+            --version "$VERSION" \
+            --output release-notes.md
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
