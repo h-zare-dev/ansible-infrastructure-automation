@@ -36,7 +36,7 @@
 
 - name: Install pinned Port Forward Manager CLI
   ansible.builtin.get_url:
-    url: "https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager/{{ port_forward_manager_ref }}/portfw"
+    url: "{{ port_forward_manager_cli_url }}"
     dest: "{{ port_forward_manager_bin_path }}"
     owner: root
     group: root
@@ -44,7 +44,7 @@
 
 - name: Install pinned Port Forward Manager systemd unit
   ansible.builtin.get_url:
-    url: "https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager/{{ port_forward_manager_ref }}/iptables-forward-manager.service"
+    url: "{{ port_forward_manager_unit_url }}"
     dest: "{{ port_forward_manager_service_path }}"
     owner: root
     group: root
@@ -57,7 +57,7 @@
       - -n
       - "{{ port_forward_manager_bin_path }}"
   changed_when: false
-  check_mode: false
+  when: not ansible_check_mode
 
 - name: Enable Port Forward Manager persistence without applying rules
   ansible.builtin.systemd_service:
