@@ -99,6 +99,38 @@ Production inventory, Vault data, Vault password files, private keys, and creden
 
 ---
 
+## Port Forward Manager host group
+
+The optional `port_forward_nodes` inventory group installs the independent
+[`iptables-forward-manager`](https://github.com/h-zare-dev/iptables-forward-manager)
+tool when `playbooks/site.yml` runs. The group name is technology-neutral to
+HAProxy and communicates the purpose of these forwarding hosts.
+
+Add hosts to the private `inventory/hosts.ini` (do not commit production inventory):
+
+```ini
+[port_forward_nodes]
+forward-de01
+forward-tr01
+```
+
+A host can also belong to `pasarguard_nodes`; membership in the forwarding
+group alone controls installation of Port Forward Manager. The role supports
+Debian/Ubuntu with systemd and installs the tool from a pinned Git commit,
+required packages, a protected `rules.db` if absent, and the systemd unit.
+It enables the unit for future boots but deliberately does **not** start,
+restart, reload or apply forwarding rules during Ansible runs.
+
+Run `sudo portfw` on the host to manage forwarding rules. Existing
+`/etc/iptables-forward-manager/rules.db` is preserved on reruns.
+
+The manager is independent of `floatip-manager`; neither Ansible role calls
+the other. Any old HAProxy tunnel group/configuration remains untouched.
+Disabling a host's inventory membership does not automatically uninstall
+the tool or delete any forwarding rules.
+
+---
+
 # Deployment Model
 
 ## Fresh Server Onboarding

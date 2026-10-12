@@ -13,6 +13,7 @@ integration_release_system:
   - monitoring
   - pasarguard
   - pasarguard_watchdog
+  - port_forward_manager
   - speedtest_cli
   - ssh_security
   - system_update

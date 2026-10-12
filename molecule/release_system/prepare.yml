@@ -31,6 +31,32 @@
           set -euo pipefail
           echo "floatip-ci-fixture"
 
+    - name: Install mock Port Forward Manager CLI fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/portfw
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          echo "portfw-ci-fixture"
+
+    - name: Install mock Port Forward Manager unit fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/iptables-forward-manager.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Port Forward Manager CI fixture
+          After=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/portfw --apply
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+
     - name: Install mock PasarGuard installer fixture
       ansible.builtin.copy:
         dest: /opt/ci-fixtures/mock-pg-installer.sh

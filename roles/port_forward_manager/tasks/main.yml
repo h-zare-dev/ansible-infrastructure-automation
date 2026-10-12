@@ -1,0 +1,67 @@
+---
+- name: Validate port forwarding manager platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == 'Debian'
+      - ansible_facts.service_mgr == 'systemd'
+    fail_msg: Port Forward Manager installation requires Debian/Ubuntu with systemd.
+
+- name: Install Port Forward Manager dependencies
+  ansible.builtin.apt:
+    name:
+      - curl
+      - iproute2
+      - iptables
+      - util-linux
+      - procps
+    state: present
+    lock_timeout: 300
+
+- name: Ensure forwarding state directory exists
+  ansible.builtin.file:
+    path: "{{ port_forward_manager_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Initialize forwarding rule database without overwriting existing rules
+  ansible.builtin.copy:
+    dest: "{{ port_forward_manager_state_dir }}/rules.db"
+    content: ""
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+
+- name: Install pinned Port Forward Manager CLI
+  ansible.builtin.get_url:
+    url: "{{ port_forward_manager_cli_url }}"
+    dest: "{{ port_forward_manager_bin_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install pinned Port Forward Manager systemd unit
+  ansible.builtin.get_url:
+    url: "{{ port_forward_manager_unit_url }}"
+    dest: "{{ port_forward_manager_service_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Validate installed Port Forward Manager shell syntax
+  ansible.builtin.command:
+    argv:
+      - bash
+      - -n
+      - "{{ port_forward_manager_bin_path }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Enable Port Forward Manager persistence without applying rules
+  ansible.builtin.systemd_service:
+    name: iptables-forward-manager.service
+    daemon_reload: true
+    enabled: true
+  # Do not start/restart/reload here: port forwarding rules are managed only by portfw.
