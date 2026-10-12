@@ -1,0 +1,6 @@
+---
+# Pin upstream to a reviewed immutable commit. No Floating IP dependency.
+port_forward_manager_ref: "033eaff01c49445d489ac29633e27fad13f5ad66"
+port_forward_manager_bin_path: /usr/local/bin/portfw
+port_forward_manager_service_path: /etc/systemd/system/iptables-forward-manager.service
+port_forward_manager_state_dir: /etc/iptables-forward-manager
