@@ -1,0 +1,7 @@
+---
+- name: Install and maintain Port Forward Manager on forwarding hosts
+  hosts: port_forward_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - port_forward_manager
