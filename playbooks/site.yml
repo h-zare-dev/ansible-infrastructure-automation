@@ -24,3 +24,10 @@
     - pasarguard_watchdog
     - role: abuse_firewall
       when: "'abuse_protected' in group_names"
+
+- name: Install Port Forward Manager on forwarding hosts
+  hosts: port_forward_nodes
+  become: true
+  gather_facts: true
+  roles:
+    - port_forward_manager
