@@ -121,6 +121,21 @@ required packages, a protected `rules.db` if absent, and the systemd unit.
 It enables the unit for future boots but deliberately does **not** start,
 restart, reload or apply forwarding rules during Ansible runs.
 
+For targeted installation and maintenance without running other roles, use:
+
+```bash
+ansible-playbook playbooks/operations/port-forward-manager.yml
+```
+
+For a canary or a single host in that group:
+
+```bash
+ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
+```
+
+These commands only run the `port_forward_manager` role on selected group members.
+They do not apply forwarding rules.
+
 Run `sudo portfw` on the host to manage forwarding rules. Existing
 `/etc/iptables-forward-manager/rules.db` is preserved on reruns.
 
