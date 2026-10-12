@@ -19,7 +19,6 @@ integration_release_system:
   - system_update
 
 contract_only:
-  - port_forward_manager
   - cloudflare_dns
   - docker
   - optimization
