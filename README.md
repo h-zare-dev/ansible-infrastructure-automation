@@ -405,13 +405,42 @@ See [`docs/native-vpn-optimization.md`](docs/native-vpn-optimization.md) for the
 
 ## ICMP / Ping Control
 
-`playbooks/operations/ping-control.yml` manages ICMP behavior for `all` independently from the main deployment. Its default action is `allow`; operators can set `ping_action=block` when needed.
+`playbooks/operations/ping-control.yml` manages **IPv4 ICMP Echo Request (Ping) replies** on inventory hosts. This operation is independent of `site.yml` and does not disable SSH or all ICMP traffic.
+
+**Block Ping on all inventory hosts:**
 
 ```bash
-ansible-playbook playbooks/operations/ping-control.yml
+ansible-playbook playbooks/operations/ping-control.yml \
+  -e "ping_action=block"
 ```
 
-This is also intentionally excluded from `site.yml`.
+**Allow Ping again on all inventory hosts:**
+
+```bash
+ansible-playbook playbooks/operations/ping-control.yml \
+  -e "ping_action=allow"
+```
+
+**Block Ping on one host only** (use its exact inventory name):
+
+```bash
+ansible-playbook playbooks/operations/ping-control.yml \
+  --limit Test-DE \
+  -e "ping_action=block"
+```
+
+**Verify the current setting on all hosts:**
+
+```bash
+ansible all -b -m ansible.builtin.command \
+  -a "sysctl net.ipv4.icmp_echo_ignore_all"
+```
+
+A value of `1` means IPv4 Echo replies are disabled; `0` means they are enabled at the kernel setting. External Ping can also be blocked by other firewall/network rules. The playbook uses `ansible.posix.sysctl` with persistent configuration, so its setting survives reboots.
+
+**Important:** The default `ping_action` is `allow`. Running the playbook **without** `-e "ping_action=block"` allows IPv4 Ping replies. Always specify the desired action explicitly when performing operational maintenance.
+
+This playbook is intentionally excluded from `site.yml`.
 
 ---
 
