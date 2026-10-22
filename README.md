@@ -317,6 +317,25 @@ Useful when SSH policy needs to be enforced without running unrelated roles.
 
 ---
 
+# Playbook Quick Reference
+
+All eight tracked playbooks and their invocation contracts are summarized below. Host names in examples are inventory aliases, not DNS names.
+
+| Playbook | Target | Purpose | Important input |
+| --- | --- | --- | --- |
+| `playbooks/bootstrap.yml` | `bootstrap_host` | First-time onboarding; may reboot | **Required** `-e bootstrap_host=SERVER_NAME` |
+| `playbooks/site.yml` | `all`, `pasarguard_nodes`, `port_forward_nodes` | Reconcile the normal desired state | Optional `--limit SERVER_NAME` |
+| `playbooks/security.yml` | `all` | Reapply SSH hardening | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/system-update.yml` | `pasarguard_nodes` | Rolling full package upgrade, reboot if required | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/security-updates.yml` | `pasarguard_nodes` | Configure unattended security updates | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/optimize.yml` | `common` by default | Explicit host network optimization | `-e optimize_hosts=GROUP_OR_HOST`; check-mode `--check --diff` |
+| `playbooks/operations/ping-control.yml` | `all` | Control IPv4 Ping replies | **Explicitly specify** `-e ping_action=block` or `allow` |
+| `playbooks/operations/port-forward-manager.yml` | `port_forward_nodes` | Install/maintain forwarding utility only | Optional `--limit SERVER_NAME` |
+
+`--limit` narrows the eligible play hosts; it never adds a host to a group it is not already in. In particular, `--limit SERVER_NAME` cannot make a host outside `port_forward_nodes` eligible for the standalone forwarding play. Production inventory remains private.
+
+---
+
 # Operational Playbooks
 
 System upgrades, security-update policy, ping control, optimization, and targeted Port Forward Manager maintenance have standalone operational entry points. Port Forward Manager is also installed by `site.yml` for members of its group.
