@@ -6,6 +6,34 @@ The project follows Semantic Versioning for published releases.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-22
+
+Adds group-based, standalone installation and maintenance of iptables Port Forward Manager, improves controller SSH host-key cleanup reliability, and completes operational documentation.
+
+### Added
+
+- `port_forward_manager` role to install pinned Port Forward Manager CLI and systemd unit on supported Debian/Ubuntu hosts.
+- `port_forward_nodes` inventory group for targeted installation using `site.yml`, independent of PasarGuard and FloatIP Manager.
+- Standalone `playbooks/operations/port-forward-manager.yml` for updating only the forwarding tool on selected group members.
+- Release-lab Molecule fixture coverage for Port Forward Manager installation and idempotency on Ubuntu 24.04 and 26.04.
+
+### Fixed
+
+- Serialized controller-side `known_hosts` removals via `throttle: 1` to prevent concurrent delegated writes and intermittent idempotency failures.
+
+### Documentation
+
+- Added explicit Ping `block`/`allow` commands, per-host targeting, and current-state verification; clarified that the default action is `allow`.
+- Audited README against all eight playbooks, role inventory, branch workflow, CI, and release process.
+- Updated repository structure, third `site.yml` play, `port_forward_nodes` group, and standalone forwarding operations guidance.
+
+### Safety and Validation
+
+- Port Forward Manager installation preserves existing `rules.db` and enables persistence without applying, restarting, or reloading live forwarding rules during Ansible runs.
+- Retained required GitHub Actions gates and Full Release Qualification on protected main-branch promotions.
+- Operator-reported three-host Port Forward Manager rollout completed with repeat runs showing `changed=0` on `IP-Tun`, `ReyCloud-IR`, and `Test-DE`.
+- No production deployments are performed by GitHub Actions.
+
 ## [1.0.0] - 2026-10-08
 
 First stable release of the Ansible infrastructure automation project.
@@ -70,5 +98,6 @@ First stable release of the Ansible infrastructure automation project.
 - Cloudflare provider changes and real kernel/network optimization behavior remain production/canary responsibilities rather than CI-side actions.
 - FloatIP Manager installation is independent from live Floating IP configuration by design.
 
-[Unreleased]: https://github.com/h-zare-dev/ansible-infrastructure-automation/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/h-zare-dev/ansible-infrastructure-automation/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/h-zare-dev/ansible-infrastructure-automation/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/h-zare-dev/ansible-infrastructure-automation/releases/tag/v1.0.0
