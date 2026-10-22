@@ -2,7 +2,7 @@
 
 Production-oriented Ansible project for provisioning, securing, monitoring, and operating a multi-node Linux infrastructure.
 
-This repository uses focused Ansible roles for SSH access, DNS and baseline Linux setup, pinned operational tooling, Docker, Prometheus monitoring, PasarGuard nodes, watchdog automation, firewall controls, native network tuning, and controlled maintenance.
+This repository uses focused Ansible roles for SSH access, DNS and baseline Linux setup, pinned operational tooling, Docker, Prometheus monitoring, PasarGuard nodes, watchdog automation, firewall controls, Port Forward Manager installation, native network tuning, and controlled maintenance.
 
 The project is designed around two distinct workflows:
 
@@ -33,9 +33,10 @@ Ongoing fleet system upgrades, security-update policy, ICMP control, and optimiz
 - Controlled rolling system upgrades with automatic reboot detection
 - Automatic security patching with `unattended-upgrades`
 - Automatic reboot disabled for unattended security updates
-- Independent operational playbooks for system updates, security updates, ping control, and native network optimization
+- Independent operational playbooks for system updates, security updates, ping control, Port Forward Manager, and native network optimization
 - Pinned Ookla Speedtest CLI installation on supported hosts
 - Pinned `floatip-manager` installation on detected Hetzner hosts
+- Dedicated `port_forward_nodes` host group for independently managed iptables forwarding-tool installation
 - RAM-aware, non-regressive BBR/conntrack/TCP tuning with Ansible check-mode support
 - Ansible Vault integration for secrets and environment-specific values
 - Public repository sanitization for safe portfolio use
@@ -71,10 +72,22 @@ ansible-infrastructure-automation/
 │   └── operations/
 │       ├── optimize.yml
 │       ├── ping-control.yml
+│       ├── port-forward-manager.yml
 │       ├── security-updates.yml
 │       └── system-update.yml
+├── .github/workflows/
+│   ├── ci.yml
+│   └── release.yml
+├── CHANGELOG.md
+├── molecule/
+│   ├── core_roles/
+│   └── release_system/
 ├── scripts/
+│   ├── extract-release-notes.py
+│   ├── full-release-qualification.sh
 │   └── validate.sh
+├── tests/
+│   └── release/
 └── roles/
     ├── abuse_firewall/
     ├── base_packages/
@@ -89,6 +102,7 @@ ansible-infrastructure-automation/
     ├── optimization/
     ├── pasarguard/
     ├── pasarguard_watchdog/
+    ├── port_forward_manager/
     ├── security_updates/
     ├── speedtest_cli/
     ├── ssh_security/
@@ -250,10 +264,11 @@ This supports both cases:
 
 ## `site.yml`
 
-`site.yml` is the primary desired-state configuration entry point. It has two logical plays with separate, single-responsibility roles:
+`site.yml` is the primary desired-state configuration entry point. It has three logical plays with separate, single-responsibility roles:
 
 1. **All managed servers** — gathers facts once, then runs `ssh_security`, `controller_ssh_config`, `cloudflare_dns`, `hostname`, `dns_resolver`, `base_packages`, `speedtest_cli`, `floatip_manager`, and `monitoring` in that order. `floatip_manager` is conditional on Hetzner detection. Controller SSH shortcuts and monitoring targets are generated on the controller.
 2. **`pasarguard_nodes`** — sets `gather_facts: false` and runs `docker`, `pasarguard`, and `pasarguard_watchdog`, followed by `abuse_firewall` only for hosts also in `abuse_protected`.
+3. **`port_forward_nodes`** — gathers facts and runs only `port_forward_manager` on group members. It installs and enables the forwarding tool but does not apply forwarding rules.
 
 An inventory host runs only the plays whose host groups include it. `all` includes inventory hosts without requiring an explicit `[all]` section. DNS resolver configuration belongs to `dns_resolver`; the native `optimization` role deliberately leaves DNS untouched.
 
@@ -289,29 +304,68 @@ Use this before `site.yml` when the server does not yet accept the managed SSH k
 
 ## `security.yml`
 
-Re-applies SSH hardening independently from the full deployment.
+Re-applies SSH hardening independently from the full deployment to all inventory hosts by default.
 
 ```bash
 ansible-playbook playbooks/security.yml
+
+# Target one inventory host
+ansible-playbook playbooks/security.yml --limit SERVER_NAME
 ```
 
 Useful when SSH policy needs to be enforced without running unrelated roles.
 
 ---
 
+# Playbook Quick Reference
+
+All eight tracked playbooks and their invocation contracts are summarized below. Host names in examples are inventory aliases, not DNS names.
+
+| Playbook | Target | Purpose | Important input |
+| --- | --- | --- | --- |
+| `playbooks/bootstrap.yml` | `bootstrap_host` | First-time onboarding; may reboot | **Required** `-e bootstrap_host=SERVER_NAME` |
+| `playbooks/site.yml` | `all`, `pasarguard_nodes`, `port_forward_nodes` | Reconcile the normal desired state | Optional `--limit SERVER_NAME` |
+| `playbooks/security.yml` | `all` | Reapply SSH hardening | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/system-update.yml` | `pasarguard_nodes` | Rolling full package upgrade, reboot if required | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/security-updates.yml` | `pasarguard_nodes` | Configure unattended security updates | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/optimize.yml` | `common` by default | Explicit host network optimization | `-e optimize_hosts=GROUP_OR_HOST`; check-mode `--check --diff` |
+| `playbooks/operations/ping-control.yml` | `all` | Control IPv4 Ping replies | **Explicitly specify** `-e ping_action=block` or `allow` |
+| `playbooks/operations/port-forward-manager.yml` | `port_forward_nodes` | Install/maintain forwarding utility only | Optional `--limit SERVER_NAME` |
+
+`--limit` narrows the eligible play hosts; it never adds a host to a group it is not already in. In particular, `--limit SERVER_NAME` cannot make a host outside `port_forward_nodes` eligible for the standalone forwarding play. Production inventory remains private.
+
+---
+
 # Operational Playbooks
 
-System upgrades, security-update policy, ping control, and optimization are independent of `site.yml`.
+System upgrades, security-update policy, ping control, optimization, and targeted Port Forward Manager maintenance have standalone operational entry points. Port Forward Manager is also installed by `site.yml` for members of its group.
 
 ```text
 playbooks/operations/
 ├── optimize.yml
 ├── ping-control.yml
+├── port-forward-manager.yml
 ├── security-updates.yml
 └── system-update.yml
 ```
 
 Keeping these operations separate avoids adding them to ordinary configuration runs.
+
+## Port Forward Manager — Standalone Installation and Maintenance
+
+`playbooks/operations/port-forward-manager.yml` targets `port_forward_nodes` and runs only the existing `port_forward_manager` role, without the unrelated roles from `site.yml`.
+
+```bash
+# All forwarding hosts
+ansible-playbook playbooks/operations/port-forward-manager.yml
+
+# A single forwarding host (must belong to port_forward_nodes)
+ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
+```
+
+It installs version-pinned tooling and systemd unit files, preserves existing `/etc/iptables-forward-manager/rules.db`, and enables the unit for future boots. It does **not** start the service or call `portfw --apply`/`--reload` during an Ansible run. Forwarding policy remains operator-managed.
+
+Removing a host from the group does not uninstall the tool or remove existing rules. For the group definition and use of `portfw`, see [Port Forward Manager host group](#port-forward-manager-host-group).
 
 ## Controlled System Updates
 
@@ -405,13 +459,42 @@ See [`docs/native-vpn-optimization.md`](docs/native-vpn-optimization.md) for the
 
 ## ICMP / Ping Control
 
-`playbooks/operations/ping-control.yml` manages ICMP behavior for `all` independently from the main deployment. Its default action is `allow`; operators can set `ping_action=block` when needed.
+`playbooks/operations/ping-control.yml` manages **IPv4 ICMP Echo Request (Ping) replies** on inventory hosts. This operation is independent of `site.yml` and does not disable SSH or all ICMP traffic.
+
+**Block Ping on all inventory hosts:**
 
 ```bash
-ansible-playbook playbooks/operations/ping-control.yml
+ansible-playbook playbooks/operations/ping-control.yml \
+  -e "ping_action=block"
 ```
 
-This is also intentionally excluded from `site.yml`.
+**Allow Ping again on all inventory hosts:**
+
+```bash
+ansible-playbook playbooks/operations/ping-control.yml \
+  -e "ping_action=allow"
+```
+
+**Block Ping on one host only** (use its exact inventory name):
+
+```bash
+ansible-playbook playbooks/operations/ping-control.yml \
+  --limit Test-DE \
+  -e "ping_action=block"
+```
+
+**Verify the current setting on all hosts:**
+
+```bash
+ansible all -b -m ansible.builtin.command \
+  -a "sysctl net.ipv4.icmp_echo_ignore_all"
+```
+
+A value of `1` means IPv4 Echo replies are disabled; `0` means they are enabled at the kernel setting. External Ping can also be blocked by other firewall/network rules. The playbook uses `ansible.posix.sysctl` with persistent configuration, so its setting survives reboots.
+
+**Important:** The default `ping_action` is `allow`. Running the playbook **without** `-e "ping_action=block"` allows IPv4 Ping replies. Always specify the desired action explicitly when performing operational maintenance.
+
+This playbook is intentionally excluded from `site.yml`.
 
 ---
 
@@ -623,6 +706,7 @@ Current groups include:
 - `pasarguard_nodes` — application nodes managed by the main deployment
 - `ssh_ubuntu` — hosts accessed through an `ubuntu` user with privilege escalation
 - `abuse_protected` — hosts receiving additional firewall protection
+- `port_forward_nodes` — hosts receiving the independent iptables Port Forward Manager installer; a host may also belong to other functional groups
 
 Production inventory values are intentionally excluded from the public repository.
 
@@ -638,7 +722,8 @@ Examples include:
 
 - bootstrap passwords
 - privilege-escalation credentials
-- API credentials- domain configuration
+- API credentials
+- domain configuration
 - controller-side SSH public-key path
 - external provider tokens
 
@@ -700,6 +785,16 @@ Never commit:
 
 ---
 
+# GitHub Release and Versioning
+
+The repository has a curated `CHANGELOG.md` and a manual publication workflow in `.github/workflows/release.yml`. Releases are **not** deployments to production hosts.
+
+To publish a subsequent version, first update `CHANGELOG.md` with a matching header such as `## [1.0.1] - YYYY-MM-DD`, review/merge the change through `development`, and promote it to `main` after Full Release Qualification succeeds. Then, in GitHub **Actions → Release → Run workflow**, select **main** and provide the version (for example `v1.0.1`). The workflow extracts that changelog entry, checks for an existing release, and creates the tag and release from `main`.
+
+Do not rerun publication for an existing tag/version expecting to overwrite it, and do not run it from `development`. The published `v1.0.0` tag remains fixed even when newer changes reach `main`.
+
+---
+
 # CI and Validation
 
 GitHub Actions is the authoritative validation environment for pull requests and protected branches. The Ansible controller does not need Python development packages, `ansible-lint`, `yamllint`, or Galaxy validation dependencies installed merely to validate repository changes.
@@ -732,7 +827,7 @@ The CI workflow has a stable final status named `CI Gate`.
    - runs on `development`, `main`, and pull requests targeting `main`
    - uses disposable privileged systemd containers for Ubuntu 24.04 and Ubuntu 26.04
    - exercises controller-side SSH configuration and known-host cleanup against sandbox files
-   - exercises hostname, resolver, SSH hardening, monitoring, FloatIP installer, Speedtest installer, PasarGuard with a mock installer, watchdog, Abuse Firewall, and Debian system-update behavior
+   - exercises hostname, resolver, SSH hardening, monitoring, FloatIP installer, Port Forward Manager installer (fixture-based, no rule apply), Speedtest installer, PasarGuard with a mock installer, watchdog, Abuse Firewall, and Debian system-update behavior
    - runs Molecule idempotency across the release-system scenario
    - contract-tests Cloudflare, Docker, FloatIP separation, optimization non-goals, and branch/playbook topology without contacting provider APIs
    - exercises optimization tier/capacity calculations with synthetic host facts
@@ -855,7 +950,7 @@ Potential future improvements:
 - expand isolated coverage for provider-backed roles without introducing production credentials
 - additional monitoring and alerting
 - checksum/signature validation for externally downloaded operational artifacts
-- versioned releases and changelog
+- automate future patch/minor release review and changelog maintenance
 - further firewall hardening
 - staging validation before production rollout
 
