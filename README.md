@@ -113,14 +113,20 @@ Production inventory, Vault data, Vault password files, private keys, and creden
 
 ---
 
-## Port Forward Manager host group
+## Port Forward Manager host group — native nftables only
 
 The optional `port_forward_nodes` inventory group installs the independent
 [`iptables-forward-manager`](https://github.com/h-zare-dev/iptables-forward-manager)
-tool when `playbooks/site.yml` runs. The group name is technology-neutral to
-HAProxy and communicates the purpose of these forwarding hosts.
+**native nftables** implementation (currently upstream `portfw-nft`).
+The role downloads the reviewed upstream commit's **`portfw-nft` CLI** and
+**`portfw-nft.service` only**. It deliberately does not execute
+`install.sh` or `install-native.sh`, and does **not** install the legacy
+`portfw` CLI, legacy systemd service, `portfw-migrate`, or optional DNS
+refresh service/timer. It installs only nftables/Python and other minimal
+runtime dependencies needed for this manager.
 
-Add hosts to the private `inventory/hosts.ini` (do not commit production inventory):
+Add hosts to the private `inventory/hosts.ini` (do not commit production
+inventory):
 
 ```ini
 [port_forward_nodes]
@@ -128,35 +134,35 @@ forward-de01
 forward-tr01
 ```
 
-A host can also belong to `pasarguard_nodes`; membership in the forwarding
-group alone controls installation of Port Forward Manager. The role supports
-Debian/Ubuntu with systemd and installs the tool from a pinned Git commit,
-required packages, a protected `rules.db` if absent, and the systemd unit.
-It enables the unit for future boots but deliberately does **not** start,
-restart, reload or apply forwarding rules during Ansible runs.
-
-For targeted installation and maintenance without running other roles, use:
+Run the standalone installer/maintenance playbook:
 
 ```bash
 ansible-playbook playbooks/operations/port-forward-manager.yml
-```
 
-For a canary or a single host in that group:
-
-```bash
+# One host that already belongs to port_forward_nodes
 ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ```
 
-These commands only run the `port_forward_manager` role on selected group members.
-They do not apply forwarding rules.
+You can also run `playbooks/site.yml` for initial host setup; only members of
+`port_forward_nodes` receive the forwarding role.
 
-Run `sudo portfw` on the host to manage forwarding rules. Existing
-`/etc/iptables-forward-manager/rules.db` is preserved on reruns.
+**Fresh installs:** no forwarding rules are created or applied. The role
+preserves an existing `/etc/iptables-forward-manager/rules.db` and installs
+the native unit **without enabling or starting it**. Upstream
+`portfw-nft` enables boot persistence after the first successful Add.
+Manage new native rules explicitly with `sudo portfw-nft`.
 
-The manager is independent of `floatip-manager`; neither Ansible role calls
-the other. Any old HAProxy tunnel group/configuration remains untouched.
-Disabling a host's inventory membership does not automatically uninstall
-the tool or delete any forwarding rules.
+**Existing legacy deployments:** the role intentionally **fails safely**
+if `/usr/local/bin/portfw` or the old
+`iptables-forward-manager.service` unit is present. Merely replacing
+these binaries is unsafe: the old iptables and new nftables engines share
+a rule database and can overlap NAT hooks. The Ansible role does **not**
+delete legacy files, stop forwarding, install migration tools or perform
+an automatic cutover. Schedule and verify any legacy-to-native transition
+separately with an out-of-band recovery path before enrolling such a server
+in this role. Removing group membership does not uninstall tools.
+
+Port Forward Manager is completely independent of `floatip-manager`.
 
 ---
 
