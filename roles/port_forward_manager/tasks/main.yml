@@ -1,19 +1,41 @@
 ---
-- name: Validate port forwarding manager platform
+- name: Validate native Port Forward Manager platform
   ansible.builtin.assert:
     that:
       - ansible_facts.os_family == 'Debian'
       - ansible_facts.service_mgr == 'systemd'
-    fail_msg: Port Forward Manager installation requires Debian/Ubuntu with systemd.
+    fail_msg: Native Port Forward Manager requires Debian/Ubuntu with systemd.
 
-- name: Install Port Forward Manager dependencies
+- name: Check for legacy Port Forward Manager binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/portfw
+  register: port_forward_legacy_cli
+
+- name: Check for legacy Port Forward Manager service
+  ansible.builtin.stat:
+    path: /etc/systemd/system/iptables-forward-manager.service
+  register: port_forward_legacy_unit
+
+- name: Refuse unmanaged automatic migration from legacy iptables
+  ansible.builtin.assert:
+    that:
+      - not port_forward_legacy_cli.stat.exists
+      - not port_forward_legacy_unit.stat.exists
+    fail_msg: >-
+      Legacy iptables Port Forward Manager files were detected. Do not install
+      native nftables over a legacy forwarding setup: both engines share rules.db
+      and overlapping hooks can interrupt traffic. Migrate and remove legacy
+      files manually in a controlled maintenance window; Ansible deliberately
+      does not install a migration tool, stop old forwarding, or delete rules.
+
+- name: Install native nftables Port Forward Manager dependencies
   ansible.builtin.apt:
     name:
-      - curl
+      - python3
+      - nftables
       - iproute2
-      - iptables
       - util-linux
-      - procps
+      - libc-bin
     state: present
     lock_timeout: 300
 
@@ -34,7 +56,7 @@
     mode: "0600"
     force: false
 
-- name: Install pinned Port Forward Manager CLI
+- name: Install pinned native Port Forward Manager CLI
   ansible.builtin.get_url:
     url: "{{ port_forward_manager_cli_url }}"
     dest: "{{ port_forward_manager_bin_path }}"
@@ -42,7 +64,7 @@
     group: root
     mode: "0755"
 
-- name: Install pinned Port Forward Manager systemd unit
+- name: Install pinned native Port Forward Manager systemd unit
   ansible.builtin.get_url:
     url: "{{ port_forward_manager_unit_url }}"
     dest: "{{ port_forward_manager_service_path }}"
@@ -50,18 +72,18 @@
     group: root
     mode: "0644"
 
-- name: Validate installed Port Forward Manager shell syntax
+- name: Validate installed native Port Forward Manager Python syntax
   ansible.builtin.command:
     argv:
-      - bash
-      - -n
+      - python3
+      - -c
+      - "import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())"
       - "{{ port_forward_manager_bin_path }}"
   changed_when: false
   when: not ansible_check_mode
 
-- name: Enable Port Forward Manager persistence without applying rules
+- name: Register native Port Forward Manager systemd unit without activation
   ansible.builtin.systemd_service:
-    name: iptables-forward-manager.service
     daemon_reload: true
-    enabled: true
-  # Do not start/restart/reload here: port forwarding rules are managed only by portfw.
+  # Upstream CLI enables boot persistence after the first successful Add.
+  # Never start, enable, reload or apply rules during Ansible installation.
