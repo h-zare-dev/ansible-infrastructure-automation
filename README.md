@@ -369,9 +369,9 @@ ansible-playbook playbooks/operations/port-forward-manager.yml
 ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ```
 
-It installs version-pinned tooling and systemd unit files, preserves existing `/etc/iptables-forward-manager/rules.db`, and enables the unit for future boots. It does **not** start the service or call `portfw --apply`/`--reload` during an Ansible run. Forwarding policy remains operator-managed.
+It installs pinned native `portfw-nft` and `portfw-nft.service`, preserves existing `/etc/iptables-forward-manager/rules.db`, but does **not** start or enable the service or apply/reload forwarding rules. The native CLI enables boot persistence after a successful Add. Legacy and migration executables are never installed by this role.
 
-Removing a host from the group does not uninstall the tool or remove existing rules. For the group definition and use of `portfw`, see [Port Forward Manager host group](#port-forward-manager-host-group).
+Removing a host from the group does not uninstall the tool or remove existing rules. For the group definition and use of `portfw-nft`, see [Port Forward Manager host group](#port-forward-manager-host-group--native-nftables-only).
 
 ## Controlled System Updates
 
@@ -712,7 +712,7 @@ Current groups include:
 - `pasarguard_nodes` — application nodes managed by the main deployment
 - `ssh_ubuntu` — hosts accessed through an `ubuntu` user with privilege escalation
 - `abuse_protected` — hosts receiving additional firewall protection
-- `port_forward_nodes` — hosts receiving the independent iptables Port Forward Manager installer; a host may also belong to other functional groups
+- `port_forward_nodes` — hosts receiving the independent native nftables Port Forward Manager installer; a host may also belong to other functional groups
 
 Production inventory values are intentionally excluded from the public repository.
 
