@@ -33,25 +33,27 @@
 
     - name: Install mock Port Forward Manager CLI fixture
       ansible.builtin.copy:
-        dest: /opt/ci-fixtures/portfw
+        dest: /opt/ci-fixtures/portfw-nft
         mode: "0755"
         content: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          echo "portfw-ci-fixture"
+          #!/usr/bin/env python3
+          import sys
+          if __name__ == "__main__":
+              assert sys.argv[1:] == ["--version"]
+              print("portfw-nft-ci-fixture")
 
     - name: Install mock Port Forward Manager unit fixture
       ansible.builtin.copy:
-        dest: /opt/ci-fixtures/iptables-forward-manager.service
+        dest: /opt/ci-fixtures/portfw-nft.service
         mode: "0644"
         content: |
           [Unit]
-          Description=Port Forward Manager CI fixture
+          Description=Native nftables Port Forward Manager CI fixture
           After=network-online.target
 
           [Service]
           Type=oneshot
-          ExecStart=/usr/local/bin/portfw --apply
+          ExecStart=/usr/local/bin/portfw-nft apply
           RemainAfterExit=yes
 
           [Install]
