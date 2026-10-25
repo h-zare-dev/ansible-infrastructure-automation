@@ -59,6 +59,34 @@
           [Install]
           WantedBy=multi-user.target
 
+    - name: Install native DNS refresh service fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/portfw-dns-refresh.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Port Forward Manager native DNS refresh CI
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/portfw-nft dns-refresh
+
+    - name: Install native DNS refresh timer fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/portfw-dns-refresh.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Port Forward Manager DNS refresh timer CI
+
+          [Timer]
+          OnBootSec=5min
+          OnUnitInactiveSec=5min
+          Unit=portfw-dns-refresh.service
+
+          [Install]
+          WantedBy=timers.target
+
     - name: Seed legacy Port Forward Manager binary on one release target
       ansible.builtin.copy:
         dest: /usr/local/bin/portfw
