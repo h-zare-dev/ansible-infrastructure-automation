@@ -7,3 +7,7 @@ port_forward_manager_service_path: /etc/systemd/system/portfw-nft.service
 port_forward_manager_state_dir: /etc/iptables-forward-manager
 port_forward_manager_cli_url: "https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager/{{ port_forward_manager_ref }}/portfw-nft"
 port_forward_manager_unit_url: "https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager/{{ port_forward_manager_ref }}/portfw-nft.service"
+port_forward_manager_dns_service_path: /etc/systemd/system/portfw-dns-refresh.service
+port_forward_manager_dns_timer_path: /etc/systemd/system/portfw-dns-refresh.timer
+port_forward_manager_dns_service_url: "https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager/{{ port_forward_manager_ref }}/portfw-dns-refresh.service"
+port_forward_manager_dns_timer_url: "https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager/{{ port_forward_manager_ref }}/portfw-dns-refresh.timer"
