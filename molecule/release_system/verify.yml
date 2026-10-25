@@ -94,6 +94,24 @@
         path: /etc/systemd/system/portfw-nft.service
       register: molecule_portfw_native_unit
 
+    - name: Verify native DNS refresh units are installed
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/systemd/system/portfw-dns-refresh.service
+        - /etc/systemd/system/portfw-dns-refresh.timer
+      register: molecule_portfw_dns_units
+
+    - name: Check native DNS refresh timer is not automatically enabled
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-enabled
+          - portfw-dns-refresh.timer
+      register: molecule_portfw_dns_enabled
+      changed_when: false
+      failed_when: false
+
     - name: Inspect legacy and excluded files
       ansible.builtin.stat:
         path: "{{ item }}"
@@ -101,7 +119,6 @@
         - /usr/local/bin/portfw
         - /usr/local/bin/portfw-migrate
         - /etc/systemd/system/iptables-forward-manager.service
-        - /etc/systemd/system/portfw-dns-refresh.timer
       register: molecule_portfw_excluded
 
     - name: Confirm previously installed legacy CLI was preserved
@@ -131,8 +148,9 @@
       ansible.builtin.assert:
         that:
           - molecule_portfw_native_unit.stat.exists
+          - molecule_portfw_dns_units.results | map(attribute='stat.exists') | select('equalto', true) | list | length == 2
+          - molecule_portfw_dns_enabled.stdout != 'enabled'
           - molecule_portfw_excluded.results[1].stat.exists == false
-          - molecule_portfw_excluded.results[3].stat.exists == false
           - molecule_portfw_excluded.results[0].stat.exists == (inventory_hostname == 'release-ubuntu-2404')
           - molecule_portfw_excluded.results[2].stat.exists == (inventory_hostname == 'release-ubuntu-2404')
           - inventory_hostname != 'release-ubuntu-2404' or molecule_portfw_legacy_output.stdout == 'legacy-portfw-ci-fixture'
