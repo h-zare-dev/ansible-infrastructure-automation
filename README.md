@@ -152,15 +152,14 @@ the native unit **without enabling or starting it**. Upstream
 `portfw-nft` enables boot persistence after the first successful Add.
 Manage new native rules explicitly with `sudo portfw-nft`.
 
-**Existing legacy deployments:** the role intentionally **fails safely**
-if `/usr/local/bin/portfw` or the old
-`iptables-forward-manager.service` unit is present. Merely replacing
-these binaries is unsafe: the old iptables and new nftables engines share
-a rule database and can overlap NAT hooks. The Ansible role does **not**
-delete legacy files, stop forwarding, install migration tools or perform
-an automatic cutover. Schedule and verify any legacy-to-native transition
-separately with an out-of-band recovery path before enrolling such a server
-in this role. Removing group membership does not uninstall tools.
+**Existing legacy deployments:** Ansible installs the native CLI and its
+service **side by side** with the old iptables manager, without stopping,
+disabling, removing, or replacing the existing `portfw` executable, legacy
+service or rules. The native service remains disabled/inactive; no native
+rules are applied. Both engines share `rules.db`, so **do not activate native
+forwarding on a legacy host** until a separately planned and verified cutover.
+Ansible does not install `portfw-migrate` or attempt a migration.
+Removing group membership does not uninstall either version.
 
 Port Forward Manager is completely independent of `floatip-manager`.
 
