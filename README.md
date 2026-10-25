@@ -36,7 +36,7 @@ Ongoing fleet system upgrades, security-update policy, ICMP control, and optimiz
 - Independent operational playbooks for system updates, security updates, ping control, Port Forward Manager, and native network optimization
 - Pinned Ookla Speedtest CLI installation on supported hosts
 - Pinned `floatip-manager` installation on detected Hetzner hosts
-- Dedicated `port_forward_nodes` host group for independently managed iptables forwarding-tool installation
+- Dedicated `port_forward_nodes` group for pinned native nftables v2 forwarding, DNS refresh service/timer installation, and legacy-safe coexistence
 - RAM-aware, non-regressive BBR/conntrack/TCP tuning with Ansible check-mode support
 - Ansible Vault integration for secrets and environment-specific values
 - Public repository sanitization for safe portfolio use
@@ -113,19 +113,33 @@ Production inventory, Vault data, Vault password files, private keys, and creden
 
 ---
 
-## Port Forward Manager host group — native nftables only
+## Port Forward Manager host group — native nftables v2
 
-The optional `port_forward_nodes` inventory group installs the independent
+The optional `port_forward_nodes` inventory group installs the native
+**nftables** engine from the independent
 [`iptables-forward-manager`](https://github.com/h-zare-dev/iptables-forward-manager)
-**native nftables** implementation (currently upstream `portfw-nft`).
-The role downloads the reviewed upstream commit's **`portfw-nft` CLI** and
-**`portfw-nft.service`**, plus **`portfw-dns-refresh.service`** and **`portfw-dns-refresh.timer`**. It deliberately does not execute
-`install.sh` or `install-native.sh`, and does **not** install the legacy
-`portfw` CLI, legacy systemd service, or `portfw-migrate`. It installs only nftables/Python and other minimal
-runtime dependencies needed for this manager.
+repository. The upstream repository name is historical; **Ansible does not
+install the legacy iptables engine** on fresh hosts.
 
-Add hosts to the private `inventory/hosts.ini` (do not commit production
-inventory):
+The role pins upstream to the immutable commit configured in
+`roles/port_forward_manager/defaults/main.yml`. It downloads exactly these
+native manager artifacts, without executing either upstream installer:
+
+- `/usr/local/bin/portfw-nft` — native nftables v2 CLI (currently `2.0.0-rc3`)
+- `/etc/systemd/system/portfw-nft.service` — boot-time rule restoration
+- `/etc/systemd/system/portfw-dns-refresh.service` — DNS destination refresh
+- `/etc/systemd/system/portfw-dns-refresh.timer` — configurable refresh schedule
+
+The role also installs minimal system packages including `python3`,
+`nftables`, `iproute2`, `util-linux`, and `libc-bin`. It does **not**
+download the legacy `portfw` CLI, install
+`iptables-forward-manager.service`, or install `portfw-migrate`.
+The state directory remains named `/etc/iptables-forward-manager` for
+upstream compatibility; the directory name **does not mean that legacy
+iptables forwarding is being installed**.
+
+Add desired hosts to your private `inventory/hosts.ini` (never commit
+production inventory):
 
 ```ini
 [port_forward_nodes]
@@ -133,34 +147,87 @@ forward-de01
 forward-tr01
 ```
 
-Run the standalone installer/maintenance playbook:
+The role is included in the third play of `playbooks/site.yml` for group
+members. For an isolated install/update without running other roles, use:
 
 ```bash
+# Entire forwarding group
 ansible-playbook playbooks/operations/port-forward-manager.yml
 
-# One host that already belongs to port_forward_nodes
+# One member of the group
 ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ```
 
-You can also run `playbooks/site.yml` for initial host setup; only members of
-`port_forward_nodes` receive the forwarding role.
+**Installation does not activate forwarding.** Ansible creates
+`rules.db` only if absent, preserves existing rules and state, installs
+the CLI and units, and reloads systemd unit definitions. It does not
+start/stop/enable/disable the forwarding service or DNS timer, and does
+not apply, reload, or remove any live NAT rules. As a consequence,
+pre-existing enabled/active service states are *preserved*, not reset.
 
-**Fresh installs:** no forwarding rules are created or applied. The role
-preserves an existing `/etc/iptables-forward-manager/rules.db` and installs
-the native unit and DNS refresh timer **without enabling or starting either**. Upstream
-`portfw-nft` enables boot persistence after the first successful Add.
-Manage new native rules explicitly with `sudo portfw-nft`. Once native forwarding with domain destinations is confirmed working, opt in to DNS refresh using `sudo portfw-nft timer --minutes 5 --enable` (supported choices: 1, 2, 3, 5, 10, 15, 20, 30, 45 or 60 minutes). Check with `systemctl is-enabled portfw-dns-refresh.timer`; disable using `sudo portfw-nft timer --disable`. Do not enable the timer while using only legacy forwarding; this timer operates on native nftables state.
+**Fresh servers:** only the native manager is installed. After you add a
+forwarding rule with `sudo portfw-nft`, the upstream CLI applies that rule
+and enables `portfw-nft.service` for boot restoration. It does **not**
+automatically start the oneshot unit or enable the DNS timer. Consequently,
+the native service may show `enabled / inactive` while the managed
+`ip ifm_portfw` table and forwarding rules are already present in the
+kernel. This is not, by itself, an error; `enabled` describes future
+boot activation rather than current service activity. A successful
+post-reboot restore and end-to-end forwarding require separate testing.
 
-**Existing legacy deployments:** Ansible installs the native CLI and its
-service **side by side** with the old iptables manager, without stopping,
-disabling, removing, or replacing the existing `portfw` executable, legacy
-service or rules. The native service remains disabled/inactive; no native
-rules are applied. Both engines share `rules.db`, so **do not activate native
-forwarding on a legacy host** until a separately planned and verified cutover.
-Ansible does not install `portfw-migrate` or attempt a migration.
-Removing group membership does not uninstall either version.
+**Existing legacy servers:** Ansible installs the same native files
+**side by side** and does not touch the old `portfw` executable,
+`iptables-forward-manager.service`, or active legacy rules. It does
+not perform or install migration. Because both implementations share
+`rules.db` and can conflict in NAT hooks, **do not activate or apply
+native forwarding on a legacy-active server** without a separately planned
+and validated cutover. The role also does not uninstall either engine when
+a host is removed from `port_forward_nodes`.
 
-Port Forward Manager is completely independent of `floatip-manager`.
+### Destination DNS refresh
+
+Adding a native rule with a domain destination resolves an IPv4 A record
+at the time of addition; **that alone does not enable periodic refresh**.
+Ansible installs the DNS refresh service/timer but deliberately leaves
+their existing enabled/running states unchanged. After verifying native
+forwarding, explicitly enable refresh in the CLI or terminal:
+
+```bash
+sudo portfw-nft timer --minutes 5 --enable
+
+# Read-only service and timer checks
+systemctl is-enabled portfw-dns-refresh.timer || true
+systemctl is-active portfw-dns-refresh.timer || true
+journalctl -u portfw-dns-refresh.service --since "1 hour ago" --no-pager
+
+# Opt out later
+sudo portfw-nft timer --disable
+```
+
+Supported intervals are 1, 2, 3, 5, 10, 15, 20, 30, 45, and 60
+minutes. A normal `DNS: unchanged; firewall untouched` log entry
+indicates a successful check without any required map update; it does
+not prove behavior under a real DNS address change. On a host still
+forwarding only through legacy iptables, leave native DNS refresh
+disabled until the cutover has been verified.
+
+### Verifying Ansible installation and idempotency
+
+```bash
+ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
+ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
+```
+
+The second run should report `changed=0` if the files and packages
+remain unchanged. On the managed host, `portfw-nft --version`,
+`portfw-nft check`, and `portfw-nft list` are safe basic checks.
+`nft list table ip ifm_portfw` shows whether native rules currently
+exist in the kernel. These checks do not, by themselves, prove
+end-to-end TCP/UDP connectivity, successful DNS address rotation, or
+boot-time restoration. Avoid `portfw-nft apply`, `reload`, or
+service restarts merely to verify a live legacy installation.
+
+Port Forward Manager remains independent of `floatip-manager`.
 
 ---
 
@@ -367,9 +434,9 @@ ansible-playbook playbooks/operations/port-forward-manager.yml
 ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ```
 
-It installs pinned native `portfw-nft`, `portfw-nft.service`, and the native DNS refresh service/timer, preserves existing `/etc/iptables-forward-manager/rules.db`, but does **not** start or enable the native service or DNS timer, or apply/reload forwarding rules. The native CLI enables boot persistence after a successful Add. Legacy and migration executables are never installed by this role.
+It installs the pinned native `portfw-nft` CLI, its rule-restore service, and its DNS refresh service/timer. Existing `rules.db`, legacy CLI/service and live forwarding are preserved. Ansible never installs migration tooling or legacy executables and never changes activation state or applies/reloads rules. The upstream native CLI enables boot persistence after the first successful Add; periodic DNS refresh must be enabled separately.
 
-Removing a host from the group does not uninstall the tool or remove existing rules. For the group definition and use of `portfw-nft`, see [Port Forward Manager host group](#port-forward-manager-host-group--native-nftables-only).
+Removing a host from the group does not uninstall the tool or remove existing rules. For the group definition and use of `portfw-nft`, see [Port Forward Manager host group](#port-forward-manager-host-group--native-nftables-v2).
 
 ## Controlled System Updates
 
@@ -793,9 +860,9 @@ Never commit:
 
 The repository has a curated `CHANGELOG.md` and a manual publication workflow in `.github/workflows/release.yml`. Releases are **not** deployments to production hosts.
 
-To publish a subsequent version, first update `CHANGELOG.md` with a matching header such as `## [1.0.1] - YYYY-MM-DD`, review/merge the change through `development`, and promote it to `main` after Full Release Qualification succeeds. Then, in GitHub **Actions → Release → Run workflow**, select **main** and provide the version (for example `v1.0.1`). The workflow extracts that changelog entry, checks for an existing release, and creates the tag and release from `main`.
+To publish a subsequent version after the current `v1.1.0`, first update `CHANGELOG.md` with a matching header such as `## [1.1.1] - YYYY-MM-DD`, review/merge the change through `development`, and promote it to `main` after Full Release Qualification succeeds. Then, in GitHub **Actions → Release → Run workflow**, select **main** and provide the version (for example `v1.1.1`). The workflow extracts that changelog entry, checks for an existing release, and creates the tag and release from `main`.
 
-Do not rerun publication for an existing tag/version expecting to overwrite it, and do not run it from `development`. The published `v1.0.0` tag remains fixed even when newer changes reach `main`.
+Do not rerun publication for an existing tag/version expecting to overwrite it, and do not run it from `development`. Published tags such as `v1.0.0` and `v1.1.0` remain fixed even when newer changes reach `main`. The nftables-only installer was merged after `v1.1.0`; it does not retroactively change that release.
 
 ---
 
@@ -831,7 +898,7 @@ The CI workflow has a stable final status named `CI Gate`.
    - runs on `development`, `main`, and pull requests targeting `main`
    - uses disposable privileged systemd containers for Ubuntu 24.04 and Ubuntu 26.04
    - exercises controller-side SSH configuration and known-host cleanup against sandbox files
-   - exercises hostname, resolver, SSH hardening, monitoring, FloatIP installer, Port Forward Manager installer (fixture-based, no rule apply), Speedtest installer, PasarGuard with a mock installer, watchdog, Abuse Firewall, and Debian system-update behavior
+   - exercises hostname, resolver, SSH hardening, monitoring, FloatIP installer, native nftables Port Forward Manager installer and DNS refresh units (fixture-based, no rule apply), Speedtest installer, PasarGuard with a mock installer, watchdog, Abuse Firewall, and Debian system-update behavior
    - runs Molecule idempotency across the release-system scenario
    - contract-tests Cloudflare, Docker, FloatIP separation, optimization non-goals, and branch/playbook topology without contacting provider APIs
    - exercises optimization tier/capacity calculations with synthetic host facts
