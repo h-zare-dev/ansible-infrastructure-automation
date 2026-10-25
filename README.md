@@ -119,10 +119,9 @@ The optional `port_forward_nodes` inventory group installs the independent
 [`iptables-forward-manager`](https://github.com/h-zare-dev/iptables-forward-manager)
 **native nftables** implementation (currently upstream `portfw-nft`).
 The role downloads the reviewed upstream commit's **`portfw-nft` CLI** and
-**`portfw-nft.service` only**. It deliberately does not execute
+**`portfw-nft.service`**, plus **`portfw-dns-refresh.service`** and **`portfw-dns-refresh.timer`**. It deliberately does not execute
 `install.sh` or `install-native.sh`, and does **not** install the legacy
-`portfw` CLI, legacy systemd service, `portfw-migrate`, or optional DNS
-refresh service/timer. It installs only nftables/Python and other minimal
+`portfw` CLI, legacy systemd service, or `portfw-migrate`. It installs only nftables/Python and other minimal
 runtime dependencies needed for this manager.
 
 Add hosts to the private `inventory/hosts.ini` (do not commit production
@@ -148,9 +147,9 @@ You can also run `playbooks/site.yml` for initial host setup; only members of
 
 **Fresh installs:** no forwarding rules are created or applied. The role
 preserves an existing `/etc/iptables-forward-manager/rules.db` and installs
-the native unit **without enabling or starting it**. Upstream
+the native unit and DNS refresh timer **without enabling or starting either**. Upstream
 `portfw-nft` enables boot persistence after the first successful Add.
-Manage new native rules explicitly with `sudo portfw-nft`.
+Manage new native rules explicitly with `sudo portfw-nft`. Once native forwarding with domain destinations is confirmed working, opt in to DNS refresh using `sudo portfw-nft timer --minutes 5 --enable` (supported choices: 1, 2, 3, 5, 10, 15, 20, 30, 45 or 60 minutes). Check with `systemctl is-enabled portfw-dns-refresh.timer`; disable using `sudo portfw-nft timer --disable`. Do not enable the timer while using only legacy forwarding; this timer operates on native nftables state.
 
 **Existing legacy deployments:** Ansible installs the native CLI and its
 service **side by side** with the old iptables manager, without stopping,
@@ -368,7 +367,7 @@ ansible-playbook playbooks/operations/port-forward-manager.yml
 ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ```
 
-It installs pinned native `portfw-nft` and `portfw-nft.service`, preserves existing `/etc/iptables-forward-manager/rules.db`, but does **not** start or enable the service or apply/reload forwarding rules. The native CLI enables boot persistence after a successful Add. Legacy and migration executables are never installed by this role.
+It installs pinned native `portfw-nft`, `portfw-nft.service`, and the native DNS refresh service/timer, preserves existing `/etc/iptables-forward-manager/rules.db`, but does **not** start or enable the native service or DNS timer, or apply/reload forwarding rules. The native CLI enables boot persistence after a successful Add. Legacy and migration executables are never installed by this role.
 
 Removing a host from the group does not uninstall the tool or remove existing rules. For the group definition and use of `portfw-nft`, see [Port Forward Manager host group](#port-forward-manager-host-group--native-nftables-only).
 
