@@ -1,19 +1,19 @@
 ---
-- name: Validate port forwarding manager platform
+- name: Validate native Port Forward Manager platform
   ansible.builtin.assert:
     that:
       - ansible_facts.os_family == 'Debian'
       - ansible_facts.service_mgr == 'systemd'
-    fail_msg: Port Forward Manager installation requires Debian/Ubuntu with systemd.
+    fail_msg: Native Port Forward Manager requires Debian/Ubuntu with systemd.
 
-- name: Install Port Forward Manager dependencies
+- name: Install native nftables Port Forward Manager dependencies
   ansible.builtin.apt:
     name:
-      - curl
+      - python3
+      - nftables
       - iproute2
-      - iptables
       - util-linux
-      - procps
+      - libc-bin
     state: present
     lock_timeout: 300
 
@@ -34,7 +34,7 @@
     mode: "0600"
     force: false
 
-- name: Install pinned Port Forward Manager CLI
+- name: Install pinned native Port Forward Manager CLI
   ansible.builtin.get_url:
     url: "{{ port_forward_manager_cli_url }}"
     dest: "{{ port_forward_manager_bin_path }}"
@@ -42,7 +42,7 @@
     group: root
     mode: "0755"
 
-- name: Install pinned Port Forward Manager systemd unit
+- name: Install pinned native Port Forward Manager systemd unit
   ansible.builtin.get_url:
     url: "{{ port_forward_manager_unit_url }}"
     dest: "{{ port_forward_manager_service_path }}"
@@ -50,18 +50,33 @@
     group: root
     mode: "0644"
 
-- name: Validate installed Port Forward Manager shell syntax
+- name: Install pinned native DNS refresh service
+  ansible.builtin.get_url:
+    url: "{{ port_forward_manager_dns_service_url }}"
+    dest: "{{ port_forward_manager_dns_service_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install pinned native DNS refresh timer
+  ansible.builtin.get_url:
+    url: "{{ port_forward_manager_dns_timer_url }}"
+    dest: "{{ port_forward_manager_dns_timer_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Validate installed native Port Forward Manager Python syntax
   ansible.builtin.command:
     argv:
-      - bash
-      - -n
+      - python3
+      - -c
+      - "import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())"
       - "{{ port_forward_manager_bin_path }}"
   changed_when: false
   when: not ansible_check_mode
 
-- name: Enable Port Forward Manager persistence without applying rules
+- name: Register native Port Forward Manager systemd unit without activation
   ansible.builtin.systemd_service:
-    name: iptables-forward-manager.service
     daemon_reload: true
-    enabled: true
-  # Do not start/restart/reload here: port forwarding rules are managed only by portfw.
+  # No starts, enables, reloads or firewall changes during installation.
