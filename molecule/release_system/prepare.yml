@@ -59,6 +59,32 @@
           [Install]
           WantedBy=multi-user.target
 
+    - name: Seed legacy Port Forward Manager binary on one release target
+      ansible.builtin.copy:
+        dest: /usr/local/bin/portfw
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          echo legacy-portfw-ci-fixture
+      when: inventory_hostname == 'release-ubuntu-2404'
+
+    - name: Seed legacy Port Forward Manager service on one release target
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/iptables-forward-manager.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Existing legacy manager preserved by CI
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/portfw
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+      when: inventory_hostname == 'release-ubuntu-2404'
+
     - name: Install mock PasarGuard installer fixture
       ansible.builtin.copy:
         dest: /opt/ci-fixtures/mock-pg-installer.sh
