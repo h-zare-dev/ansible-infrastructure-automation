@@ -50,6 +50,22 @@
     group: root
     mode: "0644"
 
+- name: Install pinned native DNS refresh service
+  ansible.builtin.get_url:
+    url: "{{ port_forward_manager_dns_service_url }}"
+    dest: "{{ port_forward_manager_dns_service_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install pinned native DNS refresh timer
+  ansible.builtin.get_url:
+    url: "{{ port_forward_manager_dns_timer_url }}"
+    dest: "{{ port_forward_manager_dns_timer_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
 - name: Validate installed native Port Forward Manager Python syntax
   ansible.builtin.command:
     argv:
