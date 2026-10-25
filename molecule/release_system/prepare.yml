@@ -33,29 +33,85 @@
 
     - name: Install mock Port Forward Manager CLI fixture
       ansible.builtin.copy:
-        dest: /opt/ci-fixtures/portfw
+        dest: /opt/ci-fixtures/portfw-nft
         mode: "0755"
         content: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          echo "portfw-ci-fixture"
+          #!/usr/bin/env python3
+          import sys
+          if __name__ == "__main__":
+              assert sys.argv[1:] == ["--version"]
+              print("portfw-nft-ci-fixture")
 
     - name: Install mock Port Forward Manager unit fixture
       ansible.builtin.copy:
-        dest: /opt/ci-fixtures/iptables-forward-manager.service
+        dest: /opt/ci-fixtures/portfw-nft.service
         mode: "0644"
         content: |
           [Unit]
-          Description=Port Forward Manager CI fixture
+          Description=Native nftables Port Forward Manager CI fixture
           After=network-online.target
 
           [Service]
           Type=oneshot
-          ExecStart=/usr/local/bin/portfw --apply
+          ExecStart=/usr/local/bin/portfw-nft apply
           RemainAfterExit=yes
 
           [Install]
           WantedBy=multi-user.target
+
+    - name: Install native DNS refresh service fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/portfw-dns-refresh.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Port Forward Manager native DNS refresh CI
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/portfw-nft dns-refresh
+
+    - name: Install native DNS refresh timer fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/portfw-dns-refresh.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Port Forward Manager DNS refresh timer CI
+
+          [Timer]
+          OnBootSec=5min
+          OnUnitInactiveSec=5min
+          Unit=portfw-dns-refresh.service
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Seed legacy Port Forward Manager binary on one release target
+      ansible.builtin.copy:
+        dest: /usr/local/bin/portfw
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          echo legacy-portfw-ci-fixture
+      when: inventory_hostname == 'release-ubuntu-2404'
+
+    - name: Seed legacy Port Forward Manager service on one release target
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/iptables-forward-manager.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Existing legacy manager preserved by CI
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/portfw
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+      when: inventory_hostname == 'release-ubuntu-2404'
 
     - name: Install mock PasarGuard installer fixture
       ansible.builtin.copy:

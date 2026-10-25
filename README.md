@@ -113,14 +113,19 @@ Production inventory, Vault data, Vault password files, private keys, and creden
 
 ---
 
-## Port Forward Manager host group
+## Port Forward Manager host group — native nftables only
 
 The optional `port_forward_nodes` inventory group installs the independent
 [`iptables-forward-manager`](https://github.com/h-zare-dev/iptables-forward-manager)
-tool when `playbooks/site.yml` runs. The group name is technology-neutral to
-HAProxy and communicates the purpose of these forwarding hosts.
+**native nftables** implementation (currently upstream `portfw-nft`).
+The role downloads the reviewed upstream commit's **`portfw-nft` CLI** and
+**`portfw-nft.service`**, plus **`portfw-dns-refresh.service`** and **`portfw-dns-refresh.timer`**. It deliberately does not execute
+`install.sh` or `install-native.sh`, and does **not** install the legacy
+`portfw` CLI, legacy systemd service, or `portfw-migrate`. It installs only nftables/Python and other minimal
+runtime dependencies needed for this manager.
 
-Add hosts to the private `inventory/hosts.ini` (do not commit production inventory):
+Add hosts to the private `inventory/hosts.ini` (do not commit production
+inventory):
 
 ```ini
 [port_forward_nodes]
@@ -128,35 +133,34 @@ forward-de01
 forward-tr01
 ```
 
-A host can also belong to `pasarguard_nodes`; membership in the forwarding
-group alone controls installation of Port Forward Manager. The role supports
-Debian/Ubuntu with systemd and installs the tool from a pinned Git commit,
-required packages, a protected `rules.db` if absent, and the systemd unit.
-It enables the unit for future boots but deliberately does **not** start,
-restart, reload or apply forwarding rules during Ansible runs.
-
-For targeted installation and maintenance without running other roles, use:
+Run the standalone installer/maintenance playbook:
 
 ```bash
 ansible-playbook playbooks/operations/port-forward-manager.yml
-```
 
-For a canary or a single host in that group:
-
-```bash
+# One host that already belongs to port_forward_nodes
 ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ```
 
-These commands only run the `port_forward_manager` role on selected group members.
-They do not apply forwarding rules.
+You can also run `playbooks/site.yml` for initial host setup; only members of
+`port_forward_nodes` receive the forwarding role.
 
-Run `sudo portfw` on the host to manage forwarding rules. Existing
-`/etc/iptables-forward-manager/rules.db` is preserved on reruns.
+**Fresh installs:** no forwarding rules are created or applied. The role
+preserves an existing `/etc/iptables-forward-manager/rules.db` and installs
+the native unit and DNS refresh timer **without enabling or starting either**. Upstream
+`portfw-nft` enables boot persistence after the first successful Add.
+Manage new native rules explicitly with `sudo portfw-nft`. Once native forwarding with domain destinations is confirmed working, opt in to DNS refresh using `sudo portfw-nft timer --minutes 5 --enable` (supported choices: 1, 2, 3, 5, 10, 15, 20, 30, 45 or 60 minutes). Check with `systemctl is-enabled portfw-dns-refresh.timer`; disable using `sudo portfw-nft timer --disable`. Do not enable the timer while using only legacy forwarding; this timer operates on native nftables state.
 
-The manager is independent of `floatip-manager`; neither Ansible role calls
-the other. Any old HAProxy tunnel group/configuration remains untouched.
-Disabling a host's inventory membership does not automatically uninstall
-the tool or delete any forwarding rules.
+**Existing legacy deployments:** Ansible installs the native CLI and its
+service **side by side** with the old iptables manager, without stopping,
+disabling, removing, or replacing the existing `portfw` executable, legacy
+service or rules. The native service remains disabled/inactive; no native
+rules are applied. Both engines share `rules.db`, so **do not activate native
+forwarding on a legacy host** until a separately planned and verified cutover.
+Ansible does not install `portfw-migrate` or attempt a migration.
+Removing group membership does not uninstall either version.
+
+Port Forward Manager is completely independent of `floatip-manager`.
 
 ---
 
@@ -363,9 +367,9 @@ ansible-playbook playbooks/operations/port-forward-manager.yml
 ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ```
 
-It installs version-pinned tooling and systemd unit files, preserves existing `/etc/iptables-forward-manager/rules.db`, and enables the unit for future boots. It does **not** start the service or call `portfw --apply`/`--reload` during an Ansible run. Forwarding policy remains operator-managed.
+It installs pinned native `portfw-nft`, `portfw-nft.service`, and the native DNS refresh service/timer, preserves existing `/etc/iptables-forward-manager/rules.db`, but does **not** start or enable the native service or DNS timer, or apply/reload forwarding rules. The native CLI enables boot persistence after a successful Add. Legacy and migration executables are never installed by this role.
 
-Removing a host from the group does not uninstall the tool or remove existing rules. For the group definition and use of `portfw`, see [Port Forward Manager host group](#port-forward-manager-host-group).
+Removing a host from the group does not uninstall the tool or remove existing rules. For the group definition and use of `portfw-nft`, see [Port Forward Manager host group](#port-forward-manager-host-group--native-nftables-only).
 
 ## Controlled System Updates
 
@@ -706,7 +710,7 @@ Current groups include:
 - `pasarguard_nodes` — application nodes managed by the main deployment
 - `ssh_ubuntu` — hosts accessed through an `ubuntu` user with privilege escalation
 - `abuse_protected` — hosts receiving additional firewall protection
-- `port_forward_nodes` — hosts receiving the independent iptables Port Forward Manager installer; a host may also belong to other functional groups
+- `port_forward_nodes` — hosts receiving the independent native nftables Port Forward Manager installer; a host may also belong to other functional groups
 
 Production inventory values are intentionally excluded from the public repository.
 

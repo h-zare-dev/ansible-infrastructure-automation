@@ -79,23 +79,65 @@
     - name: Verify Port Forward Manager CLI is installed
       ansible.builtin.command:
         argv:
-          - /usr/local/bin/portfw
+          - /usr/local/bin/portfw-nft
+          - --version
       register: molecule_portfw_output
       changed_when: false
 
     - name: Verify Port Forward Manager is the release fixture
       ansible.builtin.assert:
         that:
-          - molecule_portfw_output.stdout == 'portfw-ci-fixture'
+          - molecule_portfw_output.stdout == 'portfw-nft-ci-fixture'
 
-    - name: Verify Port Forward Manager is enabled but not started
+    - name: Verify native Port Forward Manager unit exists
+      ansible.builtin.stat:
+        path: /etc/systemd/system/portfw-nft.service
+      register: molecule_portfw_native_unit
+
+    - name: Verify native DNS refresh units are installed
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/systemd/system/portfw-dns-refresh.service
+        - /etc/systemd/system/portfw-dns-refresh.timer
+      register: molecule_portfw_dns_units
+
+    - name: Check native DNS refresh timer is not automatically enabled
       ansible.builtin.command:
         argv:
           - systemctl
           - is-enabled
-          - iptables-forward-manager.service
-      register: molecule_portfw_enabled
+          - portfw-dns-refresh.timer
+      register: molecule_portfw_dns_enabled
       changed_when: false
+      failed_when: false
+
+    - name: Inspect legacy and excluded files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/local/bin/portfw
+        - /usr/local/bin/portfw-migrate
+        - /etc/systemd/system/iptables-forward-manager.service
+      register: molecule_portfw_excluded
+
+    - name: Confirm previously installed legacy CLI was preserved
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/portfw
+      register: molecule_portfw_legacy_output
+      changed_when: false
+      when: inventory_hostname == 'release-ubuntu-2404'
+
+    - name: Check native unit was not enabled
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-enabled
+          - portfw-nft.service
+      register: molecule_portfw_native_enabled
+      changed_when: false
+      failed_when: false
 
     - name: Verify Port Forward Manager rules database is empty in CI
       ansible.builtin.stat:
@@ -105,7 +147,14 @@
     - name: Assert Port Forward Manager install contract
       ansible.builtin.assert:
         that:
-          - molecule_portfw_enabled.stdout == 'enabled'
+          - molecule_portfw_native_unit.stat.exists
+          - molecule_portfw_dns_units.results | map(attribute='stat.exists') | select('equalto', true) | list | length == 2
+          - molecule_portfw_dns_enabled.stdout != 'enabled'
+          - molecule_portfw_excluded.results[1].stat.exists == false
+          - molecule_portfw_excluded.results[0].stat.exists == (inventory_hostname == 'release-ubuntu-2404')
+          - molecule_portfw_excluded.results[2].stat.exists == (inventory_hostname == 'release-ubuntu-2404')
+          - inventory_hostname != 'release-ubuntu-2404' or molecule_portfw_legacy_output.stdout == 'legacy-portfw-ci-fixture'
+          - molecule_portfw_native_enabled.stdout != 'enabled'
           - molecule_portfw_rules.stat.exists
           - molecule_portfw_rules.stat.size == 0
           - molecule_portfw_rules.stat.mode == '0600'
