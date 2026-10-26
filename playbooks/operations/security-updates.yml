@@ -1,6 +1,6 @@
 ---
 - name: Configure automatic security updates
-  hosts: common
+  hosts: all
   become: true
   serial: 1
 
