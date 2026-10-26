@@ -407,8 +407,8 @@ All eight tracked playbooks and their invocation contracts are summarized below.
 | `playbooks/bootstrap.yml` | `bootstrap_host` | First-time onboarding; may reboot | **Required** `-e bootstrap_host=SERVER_NAME` |
 | `playbooks/site.yml` | `all`, `pasarguard_nodes`, `port_forward_nodes` | Reconcile the normal desired state | Optional `--limit SERVER_NAME` |
 | `playbooks/security.yml` | `all` | Reapply SSH hardening | Optional `--limit SERVER_NAME` |
-| `playbooks/operations/system-update.yml` | `pasarguard_nodes` | Rolling full package upgrade, reboot if required | Optional `--limit SERVER_NAME` |
-| `playbooks/operations/security-updates.yml` | `pasarguard_nodes` | Configure unattended security updates | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/system-update.yml` | `common` | Rolling full package upgrade, reboot if required | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/security-updates.yml` | `common` | Configure unattended security updates | Optional `--limit SERVER_NAME` |
 | `playbooks/operations/optimize.yml` | `common` by default | Explicit host network optimization | `-e optimize_hosts=GROUP_OR_HOST`; check-mode `--check --diff` |
 | `playbooks/operations/ping-control.yml` | `all` | Control IPv4 Ping replies | **Explicitly specify** `-e ping_action=block` or `allow` |
 | `playbooks/operations/port-forward-manager.yml` | `port_forward_nodes` | Install/maintain forwarding utility only | Optional `--limit SERVER_NAME` |
@@ -450,7 +450,7 @@ Removing a host from the group does not uninstall the tool or remove existing ru
 
 ## Controlled System Updates
 
-`playbooks/operations/system-update.yml` performs controlled package maintenance on `pasarguard_nodes`. The underlying `system_update` role supports Debian-family and RedHat-family hosts.
+`playbooks/operations/system-update.yml` performs controlled package maintenance on `common` hosts. The underlying `system_update` role supports Debian-family and RedHat-family hosts.
 
 On Debian-family hosts it refreshes APT metadata, performs a distribution upgrade, removes unused dependencies, cleans obsolete package files, and checks `/var/run/reboot-required`. On RedHat-family hosts it updates installed packages through `dnf` and uses `needs-restarting -r` when available to determine reboot need. In both cases the operational playbook reboots only when the role reports that a reboot is required.
 
@@ -477,11 +477,11 @@ ansible-playbook playbooks/operations/system-update.yml \
   --limit SERVER_NAME
 ```
 
-This playbook is intentionally **not** part of `site.yml`.
+This playbook is intentionally **not** part of `site.yml`. Only inventory members of `common` are eligible; the separate `--limit` option can narrow that set. It performs a rolling update (`serial: 1`) and may reboot a host when required.
 
 ## Automatic Security Updates
 
-`playbooks/operations/security-updates.yml` applies the `security_updates` role to `pasarguard_nodes`, one host at a time.
+`playbooks/operations/security-updates.yml` applies the `security_updates` role to `common`, one host at a time.
 
 It configures Debian-family hosts for automatic security patching using `unattended-upgrades` and manages `needrestart` explicitly.
 
@@ -515,7 +515,7 @@ Then roll out to the fleet:
 ansible-playbook playbooks/operations/security-updates.yml
 ```
 
-This playbook is intentionally separate from `site.yml`.
+This playbook is intentionally separate from `site.yml`. It targets only `common` inventory members and configures unattended security updates on Debian-family hosts. Automatic reboot remains disabled.
 
 ## Optimization
 
