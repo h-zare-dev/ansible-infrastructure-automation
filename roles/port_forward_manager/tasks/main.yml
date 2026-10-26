@@ -13,7 +13,7 @@
     status_code: 200
     headers:
       Accept: application/vnd.github+json
-  delegate_to: localhost
+  delegate_to: "{{ port_forward_manager_release_delegate }}"
   become: false
   run_once: true
   register: port_forward_manager_release_response
