@@ -62,7 +62,7 @@ for path in [
     "playbooks/operations/system-update.yml",
 ]:
     play = load_yaml(path)[0]
-    assert play["hosts"] == "common", (path, play["hosts"])
+    assert play["hosts"] == "all", (path, play["hosts"])
     assert play["serial"] == 1, (path, play.get("serial"))
 
 security_defaults = load_yaml("roles/security_updates/defaults/main.yml")
