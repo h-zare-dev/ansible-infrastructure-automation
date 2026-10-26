@@ -14,6 +14,7 @@
 
     ssh_security_public_key_path: "{{ playbook_dir }}/../../tests/fixtures/ci_ed25519.pub"
 
+    port_forward_manager_release_delegate: "{{ inventory_hostname }}"
     port_forward_manager_latest_release_url: http://127.0.0.1:18080/latest.json
     port_forward_manager_raw_base_url: http://127.0.0.1:18080
     speedtest_cli_archive_url: http://127.0.0.1:18080/speedtest.tgz
