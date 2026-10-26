@@ -6,6 +6,109 @@
       - ansible_facts.service_mgr == 'systemd'
     fail_msg: Native Port Forward Manager requires Debian/Ubuntu with systemd.
 
+- name: Resolve latest stable Port Forward Manager release on controller
+  ansible.builtin.uri:
+    url: "{{ port_forward_manager_latest_release_url }}"
+    return_content: true
+    status_code: 200
+    headers:
+      Accept: application/vnd.github+json
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: port_forward_manager_release_response
+  check_mode: false
+  changed_when: false
+
+- name: Validate latest release reference
+  ansible.builtin.assert:
+    that:
+      - port_forward_manager_release_response.json.tag_name is defined
+      - port_forward_manager_release_response.json.tag_name is match('^v[0-9]+\\.[0-9]+\\.[0-9]+
+  ansible.builtin.apt:
+    name:
+      - python3
+      - nftables
+      - iproute2
+      - util-linux
+      - libc-bin
+    state: present
+    lock_timeout: 300
+
+- name: Ensure forwarding state directory exists
+  ansible.builtin.file:
+    path: "{{ port_forward_manager_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Initialize forwarding rule database without overwriting existing rules
+  ansible.builtin.copy:
+    dest: "{{ port_forward_manager_state_dir }}/rules.db"
+    content: ""
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+
+- name: Install pinned native Port Forward Manager CLI
+  ansible.builtin.get_url:
+    url: "{{ port_forward_manager_release_raw_url }}/portfw-nft"
+    dest: "{{ port_forward_manager_bin_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install pinned native Port Forward Manager systemd unit
+  ansible.builtin.get_url:
+    url: "{{ port_forward_manager_release_raw_url }}/portfw-nft.service"
+    dest: "{{ port_forward_manager_service_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install pinned native DNS refresh service
+  ansible.builtin.get_url:
+    url: "{{ port_forward_manager_release_raw_url }}/portfw-dns-refresh.service"
+    dest: "{{ port_forward_manager_dns_service_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install pinned native DNS refresh timer
+  ansible.builtin.get_url:
+    url: "{{ port_forward_manager_release_raw_url }}/portfw-dns-refresh.timer"
+    dest: "{{ port_forward_manager_dns_timer_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Validate installed native Port Forward Manager Python syntax
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - "import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())"
+      - "{{ port_forward_manager_bin_path }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Register native Port Forward Manager systemd unit without activation
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  # No starts, enables, reloads or firewall changes during installation.
+)
+      - not (port_forward_manager_release_response.json.draft | default(true) | bool)
+      - not (port_forward_manager_release_response.json.prerelease | default(true) | bool)
+    fail_msg: GitHub latest release did not return a stable semver tag.
+  run_once: true
+
+- name: Set native release artifact URL base
+  ansible.builtin.set_fact:
+    port_forward_manager_release_raw_url: >-
+      {{ port_forward_manager_raw_base_url }}/{{ port_forward_manager_release_response.json.tag_name }}
+
 - name: Install native nftables Port Forward Manager dependencies
   ansible.builtin.apt:
     name:
