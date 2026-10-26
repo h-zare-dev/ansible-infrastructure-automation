@@ -1,6 +1,6 @@
 ---
-- name: Safely update common managed hosts
-  hosts: common
+- name: Safely update all managed hosts
+  hosts: all
   become: true
   serial: 1
 
