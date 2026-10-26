@@ -1,13 +1,11 @@
 ---
-# Native nftables-only installation, pinned to reviewed upstream main commit.
-# Do not install legacy portfw, install.sh or portfw-migrate.
-port_forward_manager_ref: "f3703db828f2eebd988061ef0659762c9e4a551f"
+# Resolve the newest published, non-prerelease GitHub Release at runtime.
+# Never execute upstream installers or install portfw-migrate/legacy binaries.
+port_forward_manager_release_delegate: localhost
+port_forward_manager_latest_release_url: https://api.github.com/repos/h-zare-dev/iptables-forward-manager/releases/latest
+port_forward_manager_raw_base_url: https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager
 port_forward_manager_bin_path: /usr/local/bin/portfw-nft
 port_forward_manager_service_path: /etc/systemd/system/portfw-nft.service
 port_forward_manager_state_dir: /etc/iptables-forward-manager
-port_forward_manager_cli_url: "https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager/{{ port_forward_manager_ref }}/portfw-nft"
-port_forward_manager_unit_url: "https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager/{{ port_forward_manager_ref }}/portfw-nft.service"
 port_forward_manager_dns_service_path: /etc/systemd/system/portfw-dns-refresh.service
 port_forward_manager_dns_timer_path: /etc/systemd/system/portfw-dns-refresh.timer
-port_forward_manager_dns_service_url: "https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager/{{ port_forward_manager_ref }}/portfw-dns-refresh.service"
-port_forward_manager_dns_timer_url: "https://raw.githubusercontent.com/h-zare-dev/iptables-forward-manager/{{ port_forward_manager_ref }}/portfw-dns-refresh.timer"
