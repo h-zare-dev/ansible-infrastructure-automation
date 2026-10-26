@@ -121,11 +121,15 @@ The optional `port_forward_nodes` inventory group installs the native
 repository. The upstream repository name is historical; **Ansible does not
 install the legacy iptables engine** on fresh hosts.
 
-The role pins upstream to the immutable commit configured in
-`roles/port_forward_manager/defaults/main.yml`. It downloads exactly these
-native manager artifacts, without executing either upstream installer:
+At each playbook run, the controller queries GitHub's latest published,
+stable Release and downloads artifacts from that release tag. Thus new releases
+do **not** require edits to Ansible variables, commits, or PRs. GitHub must
+be reachable from the controller to resolve the tag. The tag selected for a
+single playbook execution is consistent across all forwarding hosts.
+The role downloads exactly these native manager artifacts, without
+executing either upstream installer:
 
-- `/usr/local/bin/portfw-nft` — native nftables v2 CLI (currently `2.0.0-rc3`)
+- `/usr/local/bin/portfw-nft` — native nftables v2 CLI (version selected from latest stable GitHub Release)
 - `/etc/systemd/system/portfw-nft.service` — boot-time rule restoration
 - `/etc/systemd/system/portfw-dns-refresh.service` — DNS destination refresh
 - `/etc/systemd/system/portfw-dns-refresh.timer` — configurable refresh schedule
@@ -158,7 +162,7 @@ ansible-playbook playbooks/operations/port-forward-manager.yml
 ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ```
 
-**Installation does not activate forwarding.** Ansible creates
+**Installation and updates do not activate forwarding.** Ansible fetches the latest stable release on every run, creates
 `rules.db` only if absent, preserves existing rules and state, installs
 the CLI and units, and reloads systemd unit definitions. It does not
 start/stop/enable/disable the forwarding service or DNS timer, and does
@@ -218,8 +222,13 @@ ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ```
 
-The second run should report `changed=0` if the files and packages
-remain unchanged. On the managed host, `portfw-nft --version`,
+The second run should report `changed=0` if the latest Release, files, and packages
+remain unchanged. When a new stable Release is published, the next normal
+`site.yml` or standalone port-forward-manager playbook run downloads its
+native artifacts on all targeted hosts. This upgrades the files **without**
+restarting running units, reapplying kernel rules, or guaranteeing that the
+new binary has taken effect for an already active service/timer. Check
+release notes before invoking the playbook on production. On the managed host, `portfw-nft --version`,
 `portfw-nft check`, and `portfw-nft list` are safe basic checks.
 `nft list table ip ifm_portfw` shows whether native rules currently
 exist in the kernel. These checks do not, by themselves, prove
