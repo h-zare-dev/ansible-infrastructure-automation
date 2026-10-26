@@ -14,10 +14,8 @@
 
     ssh_security_public_key_path: "{{ playbook_dir }}/../../tests/fixtures/ci_ed25519.pub"
 
-    port_forward_manager_cli_url: http://127.0.0.1:18080/portfw-nft
-    port_forward_manager_unit_url: http://127.0.0.1:18080/portfw-nft.service
-    port_forward_manager_dns_service_url: http://127.0.0.1:18080/portfw-dns-refresh.service
-    port_forward_manager_dns_timer_url: http://127.0.0.1:18080/portfw-dns-refresh.timer
+    port_forward_manager_latest_release_url: http://127.0.0.1:18080/latest.json
+    port_forward_manager_raw_base_url: http://127.0.0.1:18080
     speedtest_cli_archive_url: http://127.0.0.1:18080/speedtest.tgz
     floatip_manager_url: http://127.0.0.1:18080/floatip
     abuse_firewall_ip_list_url: file:///opt/ci-fixtures/abuse-ips.ipv4
