@@ -24,7 +24,17 @@
   ansible.builtin.assert:
     that:
       - port_forward_manager_release_response.json.tag_name is defined
-      - port_forward_manager_release_response.json.tag_name is match('^v[0-9]+\\.[0-9]+\\.[0-9]+
+      - port_forward_manager_release_response.json.tag_name is match('^v[0-9]+[.][0-9]+[.][0-9]+$')
+      - not (port_forward_manager_release_response.json.draft | default(true) | bool)
+      - not (port_forward_manager_release_response.json.prerelease | default(true) | bool)
+    fail_msg: GitHub latest release did not return a stable semver tag.
+  run_once: true
+
+- name: Set native release artifact URL base
+  ansible.builtin.set_fact:
+    port_forward_manager_release_raw_url: "{{ port_forward_manager_raw_base_url }}/{{ port_forward_manager_release_response.json.tag_name }}"
+
+- name: Install native nftables Port Forward Manager dependencies
   ansible.builtin.apt:
     name:
       - python3
