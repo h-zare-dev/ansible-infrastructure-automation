@@ -168,6 +168,31 @@
       args:
         creates: /opt/ci-fixtures/speedtest.tgz
 
+    - name: Prepare tagged release fixture directory
+      ansible.builtin.file:
+        path: /opt/ci-fixtures/v2.1.0
+        state: directory
+        mode: "0755"
+
+    - name: Populate tagged native artifacts
+      ansible.builtin.copy:
+        src: "/opt/ci-fixtures/{{ item }}"
+        dest: "/opt/ci-fixtures/v2.1.0/{{ item }}"
+        remote_src: true
+        mode: "{{ '0755' if item == 'portfw-nft' else '0644' }}"
+      loop:
+        - portfw-nft
+        - portfw-nft.service
+        - portfw-dns-refresh.service
+        - portfw-dns-refresh.timer
+
+    - name: Provide latest stable GitHub release fixture
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/latest.json
+        mode: "0644"
+        content: |
+          {"tag_name":"v2.1.0","draft":false,"prerelease":false}
+
     - name: Start local fixture HTTP server
       ansible.builtin.shell: |
         set -euo pipefail
