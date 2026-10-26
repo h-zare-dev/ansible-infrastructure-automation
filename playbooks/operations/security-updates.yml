@@ -1,6 +1,6 @@
 ---
 - name: Configure automatic security updates
-  hosts: pasarguard_nodes
+  hosts: common
   become: true
   serial: 1
 
