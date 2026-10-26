@@ -171,8 +171,7 @@ pre-existing enabled/active service states are *preserved*, not reset.
 
 **Fresh servers:** only the native manager is installed. After you add a
 forwarding rule with `sudo portfw-nft`, the upstream CLI applies that rule
-and enables `portfw-nft.service` for boot restoration. It does **not**
-automatically start the oneshot unit or enable the DNS timer. Consequently,
+and enables `portfw-nft.service` for boot restoration. It does **not** automatically start the oneshot unit. In v2.1.0, adding or editing a domain rule can automatically enable the DNS scheduler; this is upstream CLI behavior, not an Ansible action. Consequently,
 the native service may show `enabled / inactive` while the managed
 `ip ifm_portfw` table and forwarding rules are already present in the
 kernel. This is not, by itself, an error; `enabled` describes future
@@ -190,11 +189,13 @@ a host is removed from `port_forward_nodes`.
 
 ### Destination DNS refresh
 
-Adding a native rule with a domain destination resolves an IPv4 A record
-at the time of addition; **that alone does not enable periodic refresh**.
-Ansible installs the DNS refresh service/timer but deliberately leaves
-their existing enabled/running states unchanged. After verifying native
-forwarding, explicitly enable refresh in the CLI or terminal:
+Adding a native rule with a domain destination resolves IPv4 A records
+at the time of addition. In v2.1.0, the native Add/Edit workflow provides
+per-rule DNS refresh and optional Timed Rotation or Per-Connection Round Robin;
+it can automatically enable the shared scheduler for domain rules.
+Ansible installs the DNS refresh service/timer but never activates them
+itself. For older rules or explicit scheduler administration, the CLI can
+inspect or configure the timer:
 
 ```bash
 sudo portfw-nft timer --minutes 5 --enable
@@ -443,7 +444,7 @@ ansible-playbook playbooks/operations/port-forward-manager.yml
 ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
 ```
 
-It installs the pinned native `portfw-nft` CLI, its rule-restore service, and its DNS refresh service/timer. Existing `rules.db`, legacy CLI/service and live forwarding are preserved. Ansible never installs migration tooling or legacy executables and never changes activation state or applies/reloads rules. The upstream native CLI enables boot persistence after the first successful Add; periodic DNS refresh must be enabled separately.
+It installs the pinned native `portfw-nft` CLI, its rule-restore service, and its DNS refresh service/timer. Existing `rules.db`, legacy CLI/service and live forwarding are preserved. Ansible never installs migration tooling or legacy executables and never changes activation state or applies/reloads rules. The upstream native CLI enables boot persistence after the first successful Add; starting with v2.1.0, domain Add/Edit can also enable its DNS scheduler automatically.
 
 Removing a host from the group does not uninstall the tool or remove existing rules. For the group definition and use of `portfw-nft`, see [Port Forward Manager host group](#port-forward-manager-host-group--native-nftables-v2).
 
