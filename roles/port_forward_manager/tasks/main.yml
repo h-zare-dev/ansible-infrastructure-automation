@@ -6,6 +6,34 @@
       - ansible_facts.service_mgr == 'systemd'
     fail_msg: Native Port Forward Manager requires Debian/Ubuntu with systemd.
 
+- name: Resolve latest stable Port Forward Manager release on controller
+  ansible.builtin.uri:
+    url: "{{ port_forward_manager_latest_release_url }}"
+    return_content: true
+    status_code: 200
+    headers:
+      Accept: application/vnd.github+json
+  delegate_to: "{{ port_forward_manager_release_delegate }}"
+  become: false
+  run_once: true
+  register: port_forward_manager_release_response
+  check_mode: false
+  changed_when: false
+
+- name: Validate latest release reference
+  ansible.builtin.assert:
+    that:
+      - port_forward_manager_release_response.json.tag_name is defined
+      - port_forward_manager_release_response.json.tag_name is match('^v[0-9]+[.][0-9]+[.][0-9]+$')
+      - not (port_forward_manager_release_response.json.draft | default(true) | bool)
+      - not (port_forward_manager_release_response.json.prerelease | default(true) | bool)
+    fail_msg: GitHub latest release did not return a stable semver tag.
+  run_once: true
+
+- name: Set native release artifact URL base
+  ansible.builtin.set_fact:
+    port_forward_manager_release_raw_url: "{{ port_forward_manager_raw_base_url }}/{{ port_forward_manager_release_response.json.tag_name }}"
+
 - name: Install native nftables Port Forward Manager dependencies
   ansible.builtin.apt:
     name:
@@ -36,7 +64,7 @@
 
 - name: Install pinned native Port Forward Manager CLI
   ansible.builtin.get_url:
-    url: "{{ port_forward_manager_cli_url }}"
+    url: "{{ port_forward_manager_release_raw_url }}/portfw-nft"
     dest: "{{ port_forward_manager_bin_path }}"
     owner: root
     group: root
@@ -44,7 +72,7 @@
 
 - name: Install pinned native Port Forward Manager systemd unit
   ansible.builtin.get_url:
-    url: "{{ port_forward_manager_unit_url }}"
+    url: "{{ port_forward_manager_release_raw_url }}/portfw-nft.service"
     dest: "{{ port_forward_manager_service_path }}"
     owner: root
     group: root
@@ -52,7 +80,7 @@
 
 - name: Install pinned native DNS refresh service
   ansible.builtin.get_url:
-    url: "{{ port_forward_manager_dns_service_url }}"
+    url: "{{ port_forward_manager_release_raw_url }}/portfw-dns-refresh.service"
     dest: "{{ port_forward_manager_dns_service_path }}"
     owner: root
     group: root
@@ -60,7 +88,7 @@
 
 - name: Install pinned native DNS refresh timer
   ansible.builtin.get_url:
-    url: "{{ port_forward_manager_dns_timer_url }}"
+    url: "{{ port_forward_manager_release_raw_url }}/portfw-dns-refresh.timer"
     dest: "{{ port_forward_manager_dns_timer_path }}"
     owner: root
     group: root
