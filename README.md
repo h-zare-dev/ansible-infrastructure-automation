@@ -256,8 +256,6 @@ Fresh server
   → add host to inventory
   → bootstrap.yml
       → controller_known_hosts (controller-side cleanup before remote fact gathering)
-      → speedtest_cli
-      → floatip_manager (Hetzner hosts only)
       → ssh_security
       → cloudflare_dns
       → controller_ssh_config
@@ -292,10 +290,8 @@ ansible-playbook playbooks/bootstrap.yml \
 
 `bootstrap.yml` targets `bootstrap_host`. Its first play disables fact gathering and runs `controller_known_hosts` entirely on localhost, before any SSH connection to the server. It uses `ssh-keygen -F` and `ssh-keygen -R` to remove only that target's entries from the controller user's `~/.ssh/known_hosts`, including hashed entries. It checks both `ansible_host` (falling back to the inventory hostname) and the inventory hostname, including its lowercase SSH alias. For a nonstandard `ansible_port`, it also checks `[hostname]:port` and `[IP]:port` entries. Missing files or matching entries require no changes.
 
-The remote bootstrap play uses Vault-provided SSH and privilege-escalation passwords. Its role order is `speedtest_cli`, `floatip_manager`, `ssh_security`, `cloudflare_dns`, `controller_ssh_config`, then a flush of pending SSH handlers, an SSH reconnect check, and as the final task, `system_update`:
+The remote bootstrap play uses Vault-provided SSH and privilege-escalation passwords. Its role order is `ssh_security`, `cloudflare_dns`, `controller_ssh_config`, then a flush of pending SSH handlers, an SSH reconnect check, and as the final task, `system_update`:
 
-- `speedtest_cli` installs pinned Ookla Speedtest CLI on the supported architecture.
-- `floatip_manager` installs pinned `floatip` only on detected Hetzner hosts; it does not add/remove IP addresses.
 - `ssh_security` installs managed SSH public keys, deploys SSH hardening and notifies a service-restart handler on changes.
 - `cloudflare_dns` creates or updates the host's Cloudflare A record.
 - `controller_ssh_config` updates all inventory SSH shortcuts on the controller.
@@ -305,6 +301,8 @@ The remote bootstrap play uses Vault-provided SSH and privilege-escalation passw
 **GRUB safety:** Debian-family systems using BIOS + `grub-pc` are inspected **read-only** before APT changes. Existing valid whole-disk GRUB selections are preserved. An absent or stale target is repaired via Debconf only if the firmware boot disk selection is unambiguous (single disk with a compatible partition layout). UEFI and non-`grub-pc` hosts are left untouched. Multi-disk, unknown or unsupported arrangements fail safely before the upgrade. The role never calls `grub-install` directly or answers "Continue without installing GRUB?" with Yes. Subsequent APT package scripts may install GRUB on the selected disk, so ensure backup and provider recovery console access before upgrading.
 
 `system_update_grub_preflight_enabled` defaults to `true`. Turning it off bypasses preflight, but does not solve GRUB prompts.
+
+**Avoiding duplicate first-run utility installs:** Bootstrap intentionally does not install `speedtest_cli` or `floatip_manager`. Both remain in the all-host play of `site.yml` and install only when relevant. `ssh_security`, `cloudflare_dns` and `controller_ssh_config` run in both workflows on purpose: Bootstrap establishes first access and DNS, while later Site runs reconcile security keys, host records and inventory aliases if they drift. No separate TLS/SSL certificate role exists in either workflow.
 
 ### Step 3 — Run the main deployment
 
@@ -381,7 +379,7 @@ Optimization, full system upgrades, ICMP policy changes, and security-update pol
 
 ## `bootstrap.yml`
 
-Initial tooling, SSH, Cloudflare DNS and controller shortcut onboarding for a new or rebuilt server. Bootstrap clears target host-key entries, installs tooling and establishes SSH/DNS/controller access, then performs the system update **last** (including a reboot when required). `site.yml` does not run the host-key cleanup or the system-update operation.
+Initial SSH, Cloudflare DNS and controller shortcut onboarding for a new or rebuilt server. Bootstrap clears target host-key entries, establishes managed SSH/DNS/controller access, then performs the system update **last** (including a reboot when required). Ookla Speedtest and FloatIP Manager installation are deferred to `site.yml`; `site.yml` does not run the host-key cleanup or the system-update operation.
 
 ```bash
 ansible-playbook playbooks/bootstrap.yml \
@@ -963,7 +961,7 @@ For a newly provisioned password-only server:
 ```bash
 # 1. Add the server to inventory
 
-# 2. Bootstrap tools and SSH/DNS, then update the OS LAST
+# 2. Bootstrap SSH/DNS access, then update the OS LAST
 ansible-playbook playbooks/bootstrap.yml \
   -e bootstrap_host=NEW_SERVER
 
