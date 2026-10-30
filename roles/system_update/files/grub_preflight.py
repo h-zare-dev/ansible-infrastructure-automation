@@ -88,7 +88,10 @@ def preferred_device_id(disk: str) -> str:
         prefixes = ("wwn-", "nvme-eui.", "scsi-", "virtio-", "ata-")
         return (next((i for i, p in enumerate(prefixes)
                       if path.name.startswith(p)), len(prefixes)), path.name)
-    return str(min(matches, key=priority)) if matches else disk
+    selected = str(min(matches, key=priority)) if matches else disk
+    if not re.fullmatch(r"/dev/[A-Za-z0-9_./:+\\-=]+", selected):
+        raise ValueError("GRUB target contains unsupported characters")
+    return selected
 
 
 def discover_candidate() -> dict[str, object]:
@@ -119,9 +122,12 @@ def main() -> int:
         if uefi:
             result = decision(uefi=True, grub_pc_installed=False)
         else:
-            installed = run(
-                "dpkg-query", "-W", "-f=${Status}", "grub-pc"
-            ) == "install ok installed"
+            try:
+                installed = run(
+                    "dpkg-query", "-W", "-f=${Status}", "grub-pc"
+                ) == "install ok installed"
+            except subprocess.CalledProcessError:
+                installed = False
             if not installed:
                 result = decision(uefi=False, grub_pc_installed=False)
             else:
