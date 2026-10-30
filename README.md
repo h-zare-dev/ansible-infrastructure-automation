@@ -255,13 +255,13 @@ The correct onboarding sequence is:
 Fresh server
   → add host to inventory
   → bootstrap.yml
-      → controller_known_hosts (controller-side cleanup before remote fact gathering)
-      → system_update (reboot when required)
-      → speedtest_cli
-      → floatip_manager (Hetzner hosts only)
+      → controller_known_hosts (empty ALL controller-user known_hosts fingerprints)
       → ssh_security
       → cloudflare_dns
       → controller_ssh_config
+      → flush pending SSH handlers
+      → reset SSH connection and verify reconnect
+      → system_update (FINAL; reboot when required)
   → site.yml
       → focused desired-state role orchestration
 ```
@@ -288,16 +288,23 @@ ansible-playbook playbooks/bootstrap.yml \
   -e bootstrap_host=node-01
 ```
 
-`bootstrap.yml` targets `bootstrap_host`. Its first play disables fact gathering and runs `controller_known_hosts` entirely on localhost, before any SSH connection to the server. It uses `ssh-keygen -F` and `ssh-keygen -R` to remove only that target's entries from the controller user's `~/.ssh/known_hosts`, including hashed entries. It checks both `ansible_host` (falling back to the inventory hostname) and the inventory hostname, including its lowercase SSH alias. For a nonstandard `ansible_port`, it also checks `[hostname]:port` and `[IP]:port` entries. Missing files or matching entries require no changes.
+`bootstrap.yml` targets `bootstrap_host`. Its first play disables fact gathering and runs `controller_known_hosts` entirely on localhost, before any SSH connection to the server. **Every bootstrap clears the complete contents** of `controller_known_hosts_path` (by default the Ansible controller process user's `~/.ssh/known_hosts`) with mode `0600`. This includes all hostnames, IPs, ports and hashed entries, including fingerprints for unrelated servers. If the file does not exist, the role creates an empty file and the private `~/.ssh` directory as necessary. It does not delete the controller's SSH config, private keys, or any server's authorized keys.
 
-The remote bootstrap play uses Vault-provided SSH and privilege-escalation passwords. Its current role order is `system_update`, `speedtest_cli`, `floatip_manager`, `ssh_security`, `cloudflare_dns`, `controller_ssh_config`:
+**Security tradeoff:** Emptying `known_hosts` discards prior host-key trust for *every* connection made by that controller user. Verify newly presented server host-key fingerprints through an independent trusted channel before accepting them. The `ansible.cfg` currently disables Ansible's `host_key_checking`, which further reduces its ability to detect impersonation; this reset does not restore that protection. Running Ansible as root resets `/root/.ssh/known_hosts`, not `/home/hossein/.ssh/known_hosts`. Use an explicit `controller_known_hosts_path` only if a different controller-user file is intended.
 
-- `system_update` performs the platform-aware update and may reboot when the host reports that a reboot is required.
-- `speedtest_cli` installs the pinned Ookla Speedtest CLI on the currently supported architecture.
-- `floatip_manager` installs the pinned `floatip` command only when Ansible detects a Hetzner system vendor; it does not add or remove addresses during installation.
-- `ssh_security` installs the managed public key, applies SSH hardening, and restarts SSH when its configuration changes.
+The remote bootstrap play uses Vault-provided SSH and privilege-escalation passwords. Its role order is `ssh_security`, `cloudflare_dns`, `controller_ssh_config`, then a flush of pending SSH handlers, an SSH reconnect check, and as the final task, `system_update`:
+
+- `ssh_security` installs managed SSH public keys, deploys SSH hardening and notifies a service-restart handler on changes.
 - `cloudflare_dns` creates or updates the host's Cloudflare A record.
-- `controller_ssh_config` updates the controller user's SSH shortcuts from the complete inventory, even though bootstrap targets only one host.
+- `controller_ssh_config` updates all inventory SSH shortcuts on the controller.
+- **Before the final update:** Ansible flushes pending SSH hardening handlers, resets its SSH session and verifies that it can reconnect. This prevents starting a rebooting OS upgrade when hardened SSH access has become unusable.
+- **Last:** `system_update` performs the OS package upgrade and optional reboot, after a BIOS GRUB preflight. If the final step fails, earlier bootstrap actions may already have succeeded, but the play remains failed.
+
+**GRUB safety:** Debian-family systems using BIOS + `grub-pc` are inspected **read-only** before APT changes. Existing valid whole-disk GRUB selections are preserved. An absent or stale target is repaired via Debconf only if the firmware boot disk selection is unambiguous (single disk with a compatible partition layout). UEFI and non-`grub-pc` hosts are left untouched. Multi-disk, unknown or unsupported arrangements fail safely before the upgrade. The role never calls `grub-install` directly or answers "Continue without installing GRUB?" with Yes. Subsequent APT package scripts may install GRUB on the selected disk, so ensure backup and provider recovery console access before upgrading.
+
+`system_update_grub_preflight_enabled` defaults to `true`. Turning it off bypasses preflight, but does not solve GRUB prompts.
+
+**Avoiding duplicate first-run utility installs:** Bootstrap intentionally does not install `speedtest_cli` or `floatip_manager`. Both remain in the all-host play of `site.yml` and install only when relevant. `ssh_security`, `cloudflare_dns` and `controller_ssh_config` run in both workflows on purpose: Bootstrap establishes first access and DNS, while later Site runs reconcile security keys, host records and inventory aliases if they drift. No separate TLS/SSL certificate role exists in either workflow.
 
 ### Step 3 — Run the main deployment
 
@@ -374,7 +381,7 @@ Optimization, full system upgrades, ICMP policy changes, and security-update pol
 
 ## `bootstrap.yml`
 
-Initial update/tooling, SSH, Cloudflare DNS, and controller SSH shortcut onboarding for a new or rebuilt server. Bootstrap clears the selected target's controller host-key entries before connecting, performs the configured system update (including a required reboot), installs the pinned operational tools, and then establishes the managed SSH/DNS/controller state. `site.yml` does not run the host-key cleanup or the system-update operation.
+Initial SSH, Cloudflare DNS and controller shortcut onboarding for a new or rebuilt server. Bootstrap empties the controller-user known_hosts file, establishes managed SSH/DNS/controller access, then performs the system update **last** (including a reboot when required). Ookla Speedtest and FloatIP Manager installation are deferred to `site.yml`; `site.yml` does not run the host-key cleanup or the system-update operation.
 
 ```bash
 ansible-playbook playbooks/bootstrap.yml \
@@ -407,8 +414,8 @@ All eight tracked playbooks and their invocation contracts are summarized below.
 | `playbooks/bootstrap.yml` | `bootstrap_host` | First-time onboarding; may reboot | **Required** `-e bootstrap_host=SERVER_NAME` |
 | `playbooks/site.yml` | `all`, `pasarguard_nodes`, `port_forward_nodes` | Reconcile the normal desired state | Optional `--limit SERVER_NAME` |
 | `playbooks/security.yml` | `all` | Reapply SSH hardening | Optional `--limit SERVER_NAME` |
-| `playbooks/operations/system-update.yml` | `pasarguard_nodes` | Rolling full package upgrade, reboot if required | Optional `--limit SERVER_NAME` |
-| `playbooks/operations/security-updates.yml` | `pasarguard_nodes` | Configure unattended security updates | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/system-update.yml` | `all` | Rolling full package upgrade, reboot if required | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/security-updates.yml` | `all` | Configure unattended security updates | Optional `--limit SERVER_NAME` |
 | `playbooks/operations/optimize.yml` | `common` by default | Explicit host network optimization | `-e optimize_hosts=GROUP_OR_HOST`; check-mode `--check --diff` |
 | `playbooks/operations/ping-control.yml` | `all` | Control IPv4 Ping replies | **Explicitly specify** `-e ping_action=block` or `allow` |
 | `playbooks/operations/port-forward-manager.yml` | `port_forward_nodes` | Install/maintain forwarding utility only | Optional `--limit SERVER_NAME` |
@@ -450,7 +457,7 @@ Removing a host from the group does not uninstall the tool or remove existing ru
 
 ## Controlled System Updates
 
-`playbooks/operations/system-update.yml` performs controlled package maintenance on `pasarguard_nodes`. The underlying `system_update` role supports Debian-family and RedHat-family hosts.
+`playbooks/operations/system-update.yml` performs controlled package maintenance on all inventory hosts (`all`). The underlying `system_update` role supports Debian-family and RedHat-family hosts.
 
 On Debian-family hosts it refreshes APT metadata, performs a distribution upgrade, removes unused dependencies, cleans obsolete package files, and checks `/var/run/reboot-required`. On RedHat-family hosts it updates installed packages through `dnf` and uses `needs-restarting -r` when available to determine reboot need. In both cases the operational playbook reboots only when the role reports that a reboot is required.
 
@@ -477,11 +484,11 @@ ansible-playbook playbooks/operations/system-update.yml \
   --limit SERVER_NAME
 ```
 
-This playbook is intentionally **not** part of `site.yml`.
+This playbook is intentionally **not** part of `site.yml`. All inventory hosts are eligible; the separate `--limit` option can narrow that set. It performs a rolling update (`serial: 1`) and may reboot a host when required.
 
 ## Automatic Security Updates
 
-`playbooks/operations/security-updates.yml` applies the `security_updates` role to `pasarguard_nodes`, one host at a time.
+`playbooks/operations/security-updates.yml` applies the `security_updates` role to all inventory hosts (`all`), one host at a time.
 
 It configures Debian-family hosts for automatic security patching using `unattended-upgrades` and manages `needrestart` explicitly.
 
@@ -515,7 +522,7 @@ Then roll out to the fleet:
 ansible-playbook playbooks/operations/security-updates.yml
 ```
 
-This playbook is intentionally separate from `site.yml`.
+This playbook is intentionally separate from `site.yml`. It targets every inventory host (`all`) and configures unattended security updates on Debian-family hosts; non-Debian hosts fail the role's platform assertion. Automatic reboot remains disabled.
 
 ## Optimization
 
@@ -586,7 +593,7 @@ The former `common` role was split into focused responsibilities. Current roles 
 | Role | Responsibility |
 | --- | --- |
 | `ssh_security` | Install the managed SSH public key and enforce server SSH policy. |
-| `controller_known_hosts` | Remove only the bootstrap target's stale controller `known_hosts` entries before first connection. |
+| `controller_known_hosts` | Clear the entire controller user's `known_hosts` file before initial connection (all stored fingerprints). |
 | `controller_ssh_config` | Maintain inventory-derived SSH shortcuts on the controller. |
 | `cloudflare_dns` | Manage the host's Cloudflare A record from inventory. |
 | `hostname` | Set the lowercase inventory name as the system hostname. |
@@ -956,7 +963,7 @@ For a newly provisioned password-only server:
 ```bash
 # 1. Add the server to inventory
 
-# 2. Bootstrap updates/tooling, SSH, Cloudflare DNS, and controller shortcuts
+# 2. Bootstrap SSH/DNS access, then update the OS LAST
 ansible-playbook playbooks/bootstrap.yml \
   -e bootstrap_host=NEW_SERVER
 

@@ -259,19 +259,19 @@
           - "'Host release-ubuntu-2404' in (molecule_controller_ssh_config.content | b64decode)"
           - "'Host release-ubuntu-2604' in (molecule_controller_ssh_config.content | b64decode)"
 
-    - name: Confirm bootstrap host keys were removed
-      ansible.builtin.command:
-        argv:
-          - ssh-keygen
-          - -F
-          - "{{ item }}"
-          - -f
-          - /tmp/ansible-release-controller/ssh/known_hosts
-      loop: "{{ groups['all'] }}"
+    - name: Inspect controller known_hosts file after bootstrap reset
+      ansible.builtin.stat:
+        path: /tmp/ansible-release-controller/ssh/known_hosts
+      register: molecule_known_hosts_stat
       delegate_to: localhost
-      register: molecule_known_hosts_query
-      changed_when: false
-      failed_when: molecule_known_hosts_query.rc != 1
+
+    - name: Assert every controller known_hosts entry was cleared
+      ansible.builtin.assert:
+        that:
+          - molecule_known_hosts_stat.stat.exists
+          - molecule_known_hosts_stat.stat.isreg
+          - molecule_known_hosts_stat.stat.size == 0
+          - molecule_known_hosts_stat.stat.mode == '0600'
 
     - name: Validate Prometheus targets JSON
       ansible.builtin.command:

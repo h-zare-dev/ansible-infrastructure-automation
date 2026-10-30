@@ -34,6 +34,53 @@ assert classified == role_dirs, (
     f"unknown={sorted(classified - role_dirs)}"
 )
 
+bootstrap = load_yaml("playbooks/bootstrap.yml")
+assert len(bootstrap) == 2
+assert bootstrap[0]["hosts"] == "{{ bootstrap_host }}"
+assert [role_name(item) for item in bootstrap[0]["roles"]] == ["controller_known_hosts"]
+
+known_hosts_reset = load_yaml("roles/controller_known_hosts/tasks/main.yml")
+assert len(known_hosts_reset) == 1
+known_hosts_play = known_hosts_reset[0]
+assert known_hosts_play["delegate_to"] == "localhost"
+assert known_hosts_play["become"] is False
+assert known_hosts_play["run_once"] is True
+known_hosts_tasks = known_hosts_play["block"]
+assert len(known_hosts_tasks) == 2
+assert known_hosts_tasks[0]["ansible.builtin.file"]["state"] == "directory"
+assert known_hosts_tasks[0]["ansible.builtin.file"]["mode"] == "0700"
+known_hosts_copy = known_hosts_tasks[-1]["ansible.builtin.copy"]
+assert known_hosts_copy["dest"] == "{{ controller_known_hosts_path }}"
+assert known_hosts_copy["content"] == ""
+assert known_hosts_copy["mode"] == "0600"
+assert "ssh-keygen" not in (ROOT / "roles/controller_known_hosts/tasks/main.yml").read_text()
+
+bootstrap_roles = [role_name(item) for item in bootstrap[1]["roles"]]
+assert bootstrap_roles == [
+    "ssh_security",
+    "cloudflare_dns",
+    "controller_ssh_config",
+], bootstrap_roles
+# Utility installation belongs to site.yml, not bootstrap.
+assert "speedtest_cli" not in bootstrap_roles
+assert "floatip_manager" not in bootstrap_roles
+assert bootstrap[1]["vars"]["system_update_reboot"] is True
+bootstrap_final_tasks = bootstrap[1]["tasks"]
+assert len(bootstrap_final_tasks) == 4
+assert bootstrap_final_tasks[0]["ansible.builtin.meta"] == "flush_handlers"
+assert bootstrap_final_tasks[1]["ansible.builtin.meta"] == "reset_connection"
+assert "ansible.builtin.wait_for_connection" in bootstrap_final_tasks[2]
+assert bootstrap_final_tasks[-1]["ansible.builtin.include_role"]["name"] == "system_update"
+
+debian_update = load_yaml("roles/system_update/tasks/debian.yml")
+debian_task_names = [task["name"] for task in debian_update]
+assert debian_task_names.index("Correct verified BIOS GRUB debconf target") < (
+    debian_task_names.index("Upgrade installed packages")
+)
+assert debian_task_names.index("Stop unsafe GRUB upgrades before any APT changes") < (
+    debian_task_names.index("Update APT package cache")
+)
+
 site = load_yaml("playbooks/site.yml")
 managed_roles = [role_name(item) for item in site[0]["roles"]]
 expected_managed_roles = [
@@ -62,7 +109,7 @@ for path in [
     "playbooks/operations/system-update.yml",
 ]:
     play = load_yaml(path)[0]
-    assert play["hosts"] == "pasarguard_nodes", (path, play["hosts"])
+    assert play["hosts"] == "all", (path, play["hosts"])
     assert play["serial"] == 1, (path, play.get("serial"))
 
 security_defaults = load_yaml("roles/security_updates/defaults/main.yml")

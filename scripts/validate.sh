@@ -47,6 +47,10 @@ yaml_targets=(
 yamllint -f parsable "${yaml_targets[@]}"
 
 echo
+echo "==> Running isolated GRUB preflight policy tests"
+python3 -m unittest discover -s tests/release -p 'test_grub_preflight.py' -v
+
+echo
 echo "==> Running ansible-lint"
 ansible-lint --offline playbooks roles molecule tests/release
 

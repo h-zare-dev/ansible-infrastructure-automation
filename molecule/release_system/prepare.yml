@@ -263,6 +263,8 @@
           {% for host in groups['all'] %}
           {{ host }} ssh-ed25519 {{ key }}
           {% endfor %}
+          unrelated-ci-host.example.invalid ssh-ed25519 {{ key }}
+          |1|Y2ktdGVzdC1zYWx0|Y2ktdGVzdC1oYXNo ssh-ed25519 {{ key }}
       delegate_to: localhost
 
     - name: Seed controller SSH config fixture

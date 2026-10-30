@@ -1,6 +1,6 @@
 ---
-- name: Safely update managed VPN nodes
-  hosts: pasarguard_nodes
+- name: Safely update all managed hosts
+  hosts: all
   become: true
   serial: 1
 
