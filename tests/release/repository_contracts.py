@@ -34,6 +34,31 @@ assert classified == role_dirs, (
     f"unknown={sorted(classified - role_dirs)}"
 )
 
+bootstrap = load_yaml("playbooks/bootstrap.yml")
+assert len(bootstrap) == 2
+assert bootstrap[0]["hosts"] == "{{ bootstrap_host }}"
+assert [role_name(item) for item in bootstrap[0]["roles"]] == ["controller_known_hosts"]
+bootstrap_roles = [role_name(item) for item in bootstrap[1]["roles"]]
+assert bootstrap_roles == [
+    "speedtest_cli",
+    "floatip_manager",
+    "ssh_security",
+    "cloudflare_dns",
+    "controller_ssh_config",
+    "system_update",
+], bootstrap_roles
+assert bootstrap[1]["vars"]["system_update_reboot"] is True
+assert bootstrap_roles[-1] == "system_update"
+
+debian_update = load_yaml("roles/system_update/tasks/debian.yml")
+debian_task_names = [task["name"] for task in debian_update]
+assert debian_task_names.index("Correct verified BIOS GRUB debconf target") < (
+    debian_task_names.index("Upgrade installed packages")
+)
+assert debian_task_names.index("Stop unsafe GRUB upgrades before any APT changes") < (
+    debian_task_names.index("Update APT package cache")
+)
+
 site = load_yaml("playbooks/site.yml")
 managed_roles = [role_name(item) for item in site[0]["roles"]]
 expected_managed_roles = [
