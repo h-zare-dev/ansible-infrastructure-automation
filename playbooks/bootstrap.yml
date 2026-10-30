@@ -21,4 +21,13 @@
     - ssh_security
     - cloudflare_dns
     - controller_ssh_config
-    - system_update
+
+  tasks:
+    # Flush SSH security restarts before the final (potentially rebooting)
+    # system update. Otherwise a notified handler could run after it.
+    - name: Apply pending SSH handlers before final OS upgrade
+      ansible.builtin.meta: flush_handlers
+
+    - name: Perform system update as final bootstrap step
+      ansible.builtin.include_role:
+        name: system_update
