@@ -38,6 +38,23 @@ bootstrap = load_yaml("playbooks/bootstrap.yml")
 assert len(bootstrap) == 2
 assert bootstrap[0]["hosts"] == "{{ bootstrap_host }}"
 assert [role_name(item) for item in bootstrap[0]["roles"]] == ["controller_known_hosts"]
+
+known_hosts_reset = load_yaml("roles/controller_known_hosts/tasks/main.yml")
+assert len(known_hosts_reset) == 1
+known_hosts_play = known_hosts_reset[0]
+assert known_hosts_play["delegate_to"] == "localhost"
+assert known_hosts_play["become"] is False
+assert known_hosts_play["run_once"] is True
+known_hosts_tasks = known_hosts_play["block"]
+assert len(known_hosts_tasks) == 2
+assert known_hosts_tasks[0]["ansible.builtin.file"]["state"] == "directory"
+assert known_hosts_tasks[0]["ansible.builtin.file"]["mode"] == "0700"
+known_hosts_copy = known_hosts_tasks[-1]["ansible.builtin.copy"]
+assert known_hosts_copy["dest"] == "{{ controller_known_hosts_path }}"
+assert known_hosts_copy["content"] == ""
+assert known_hosts_copy["mode"] == "0600"
+assert "ssh-keygen" not in (ROOT / "roles/controller_known_hosts/tasks/main.yml").read_text()
+
 bootstrap_roles = [role_name(item) for item in bootstrap[1]["roles"]]
 assert bootstrap_roles == [
     "ssh_security",
