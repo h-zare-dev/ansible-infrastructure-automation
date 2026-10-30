@@ -255,7 +255,7 @@ The correct onboarding sequence is:
 Fresh server
   → add host to inventory
   → bootstrap.yml
-      → controller_known_hosts (controller-side cleanup before remote fact gathering)
+      → controller_known_hosts (empty ALL controller-user known_hosts fingerprints)
       → ssh_security
       → cloudflare_dns
       → controller_ssh_config
@@ -288,7 +288,9 @@ ansible-playbook playbooks/bootstrap.yml \
   -e bootstrap_host=node-01
 ```
 
-`bootstrap.yml` targets `bootstrap_host`. Its first play disables fact gathering and runs `controller_known_hosts` entirely on localhost, before any SSH connection to the server. It uses `ssh-keygen -F` and `ssh-keygen -R` to remove only that target's entries from the controller user's `~/.ssh/known_hosts`, including hashed entries. It checks both `ansible_host` (falling back to the inventory hostname) and the inventory hostname, including its lowercase SSH alias. For a nonstandard `ansible_port`, it also checks `[hostname]:port` and `[IP]:port` entries. Missing files or matching entries require no changes.
+`bootstrap.yml` targets `bootstrap_host`. Its first play disables fact gathering and runs `controller_known_hosts` entirely on localhost, before any SSH connection to the server. **Every bootstrap clears the complete contents** of `controller_known_hosts_path` (by default the Ansible controller process user's `~/.ssh/known_hosts`) with mode `0600`. This includes all hostnames, IPs, ports and hashed entries, including fingerprints for unrelated servers. If the file does not exist, the role creates an empty file and the private `~/.ssh` directory as necessary. It does not delete the controller's SSH config, private keys, or any server's authorized keys.
+
+**Security tradeoff:** Emptying `known_hosts` discards prior host-key trust for *every* connection made by that controller user. Verify newly presented server host-key fingerprints through an independent trusted channel before accepting them. The `ansible.cfg` currently disables Ansible's `host_key_checking`, which further reduces its ability to detect impersonation; this reset does not restore that protection. Running Ansible as root resets `/root/.ssh/known_hosts`, not `/home/hossein/.ssh/known_hosts`. Use an explicit `controller_known_hosts_path` only if a different controller-user file is intended.
 
 The remote bootstrap play uses Vault-provided SSH and privilege-escalation passwords. Its role order is `ssh_security`, `cloudflare_dns`, `controller_ssh_config`, then a flush of pending SSH handlers, an SSH reconnect check, and as the final task, `system_update`:
 
@@ -379,7 +381,7 @@ Optimization, full system upgrades, ICMP policy changes, and security-update pol
 
 ## `bootstrap.yml`
 
-Initial SSH, Cloudflare DNS and controller shortcut onboarding for a new or rebuilt server. Bootstrap clears target host-key entries, establishes managed SSH/DNS/controller access, then performs the system update **last** (including a reboot when required). Ookla Speedtest and FloatIP Manager installation are deferred to `site.yml`; `site.yml` does not run the host-key cleanup or the system-update operation.
+Initial SSH, Cloudflare DNS and controller shortcut onboarding for a new or rebuilt server. Bootstrap empties the controller-user known_hosts file, establishes managed SSH/DNS/controller access, then performs the system update **last** (including a reboot when required). Ookla Speedtest and FloatIP Manager installation are deferred to `site.yml`; `site.yml` does not run the host-key cleanup or the system-update operation.
 
 ```bash
 ansible-playbook playbooks/bootstrap.yml \
@@ -591,7 +593,7 @@ The former `common` role was split into focused responsibilities. Current roles 
 | Role | Responsibility |
 | --- | --- |
 | `ssh_security` | Install the managed SSH public key and enforce server SSH policy. |
-| `controller_known_hosts` | Remove only the bootstrap target's stale controller `known_hosts` entries before first connection. |
+| `controller_known_hosts` | Clear the entire controller user's `known_hosts` file before initial connection (all stored fingerprints). |
 | `controller_ssh_config` | Maintain inventory-derived SSH shortcuts on the controller. |
 | `cloudflare_dns` | Manage the host's Cloudflare A record from inventory. |
 | `hostname` | Set the lowercase inventory name as the system hostname. |
