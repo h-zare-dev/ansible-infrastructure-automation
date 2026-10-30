@@ -29,6 +29,7 @@
     stdin: |
       grub-pc grub-pc/install_devices multiselect {{ system_update_grub_preflight.device }}
       grub-pc grub-pc/install_devices_empty boolean false
+  changed_when: true
   when:
     - system_update_grub_preflight_enabled | bool
     - not ansible_check_mode
