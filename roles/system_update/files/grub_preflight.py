@@ -89,7 +89,7 @@ def preferred_device_id(disk: str) -> str:
         return (next((i for i, p in enumerate(prefixes)
                       if path.name.startswith(p)), len(prefixes)), path.name)
     selected = str(min(matches, key=priority)) if matches else disk
-    if not re.fullmatch(r"/dev/[A-Za-z0-9_./:+\\-=]+", selected):
+    if not re.fullmatch(r"/dev/[A-Za-z0-9_./:+-]+", selected):
         raise ValueError("GRUB target contains unsupported characters")
     return selected
 
