@@ -28,6 +28,15 @@
     - name: Apply pending SSH handlers before final OS upgrade
       ansible.builtin.meta: flush_handlers
 
+    - name: Reset controller connection after SSH hardening
+      ansible.builtin.meta: reset_connection
+
+    - name: Confirm SSH reconnection before final OS upgrade
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 5
+        sleep: 2
+        timeout: 120
+
     - name: Perform system update as final bootstrap step
       ansible.builtin.include_role:
         name: system_update
