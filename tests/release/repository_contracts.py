@@ -48,8 +48,10 @@ assert bootstrap_roles == [
 ], bootstrap_roles
 assert bootstrap[1]["vars"]["system_update_reboot"] is True
 bootstrap_final_tasks = bootstrap[1]["tasks"]
-assert len(bootstrap_final_tasks) == 2
+assert len(bootstrap_final_tasks) == 4
 assert bootstrap_final_tasks[0]["ansible.builtin.meta"] == "flush_handlers"
+assert bootstrap_final_tasks[1]["ansible.builtin.meta"] == "reset_connection"
+assert "ansible.builtin.wait_for_connection" in bootstrap_final_tasks[2]
 assert bootstrap_final_tasks[-1]["ansible.builtin.include_role"]["name"] == "system_update"
 
 debian_update = load_yaml("roles/system_update/tasks/debian.yml")
