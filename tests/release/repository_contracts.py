@@ -40,12 +40,13 @@ assert bootstrap[0]["hosts"] == "{{ bootstrap_host }}"
 assert [role_name(item) for item in bootstrap[0]["roles"]] == ["controller_known_hosts"]
 bootstrap_roles = [role_name(item) for item in bootstrap[1]["roles"]]
 assert bootstrap_roles == [
-    "speedtest_cli",
-    "floatip_manager",
     "ssh_security",
     "cloudflare_dns",
     "controller_ssh_config",
 ], bootstrap_roles
+# Utility installation belongs to site.yml, not bootstrap.
+assert "speedtest_cli" not in bootstrap_roles
+assert "floatip_manager" not in bootstrap_roles
 assert bootstrap[1]["vars"]["system_update_reboot"] is True
 bootstrap_final_tasks = bootstrap[1]["tasks"]
 assert len(bootstrap_final_tasks) == 4
