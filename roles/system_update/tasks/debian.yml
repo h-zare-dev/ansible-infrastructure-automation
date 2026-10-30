@@ -1,4 +1,41 @@
 ---
+- name: Inspect BIOS GRUB boot target before package upgrade
+  ansible.builtin.script:
+    cmd: grub_preflight.py
+    executable: /usr/bin/python3
+  register: system_update_grub_preflight_raw
+  check_mode: false
+  changed_when: false
+  when: system_update_grub_preflight_enabled | bool
+
+- name: Parse BIOS GRUB inspection result
+  ansible.builtin.set_fact:
+    system_update_grub_preflight: "{{ system_update_grub_preflight_raw.stdout | from_json }}"
+  when: system_update_grub_preflight_enabled | bool
+
+- name: Stop unsafe GRUB upgrades before any APT changes
+  ansible.builtin.assert:
+    that:
+      - system_update_grub_preflight.action in ['skip', 'keep', 'preseed']
+    fail_msg: >-
+      Cannot safely select a BIOS GRUB installation disk:
+      {{ system_update_grub_preflight.reason }}.
+      Inspect boot firmware, disks and GRUB debconf before upgrading.
+  when: system_update_grub_preflight_enabled | bool
+
+- name: Correct verified BIOS GRUB debconf target
+  ansible.builtin.command:
+    cmd: debconf-set-selections
+    stdin: |
+      grub-pc grub-pc/install_devices multiselect {{ system_update_grub_preflight.device }}
+      grub-pc grub-pc/install_devices_disks_changed multiselect {{ system_update_grub_preflight.device }}
+      grub-pc grub-pc/install_devices_empty boolean false
+  changed_when: true
+  when:
+    - system_update_grub_preflight_enabled | bool
+    - not ansible_check_mode
+    - system_update_grub_preflight.action == 'preseed'
+
 - name: Update APT package cache
   ansible.builtin.apt:
     update_cache: true

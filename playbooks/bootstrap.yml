@@ -1,5 +1,5 @@
 ---
-- name: Reset bootstrap target SSH host keys on the controller
+- name: Clear controller SSH host fingerprints before bootstrap
   hosts: "{{ bootstrap_host }}"
   gather_facts: false
   roles:
@@ -14,10 +14,27 @@
     ansible_become_pass: "{{ vault_ansible_become_pass }}"
     system_update_reboot: true
 
+  # Finish access/bootstrap provisioning before the potentially rebooting OS upgrade.
   roles:
-    - system_update
-    - speedtest_cli
-    - floatip_manager
     - ssh_security
     - cloudflare_dns
     - controller_ssh_config
+
+  tasks:
+    # Flush SSH security restarts before the final (potentially rebooting)
+    # system update. Otherwise a notified handler could run after it.
+    - name: Apply pending SSH handlers before final OS upgrade
+      ansible.builtin.meta: flush_handlers
+
+    - name: Reset controller connection after SSH hardening
+      ansible.builtin.meta: reset_connection
+
+    - name: Confirm SSH reconnection before final OS upgrade
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 5
+        sleep: 2
+        timeout: 120
+
+    - name: Perform system update as final bootstrap step
+      ansible.builtin.include_role:
+        name: system_update
