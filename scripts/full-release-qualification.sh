@@ -13,6 +13,10 @@ python3 -m py_compile tests/release/repository_contracts.py
 python3 tests/release/repository_contracts.py
 
 echo
+echo "==> BIOS GRUB preflight safety contracts"
+python3 -m unittest discover -s tests/release -p 'test_grub_preflight.py' -v
+
+echo
 echo "==> Optimization capacity contracts"
 ansible-playbook -i localhost, tests/release/optimization_contract.yml
 
