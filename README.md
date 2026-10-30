@@ -262,6 +262,7 @@ Fresh server
       → cloudflare_dns
       → controller_ssh_config
       → flush pending SSH handlers
+      → reset SSH connection and verify reconnect
       → system_update (FINAL; reboot when required)
   → site.yml
       → focused desired-state role orchestration
@@ -291,14 +292,14 @@ ansible-playbook playbooks/bootstrap.yml \
 
 `bootstrap.yml` targets `bootstrap_host`. Its first play disables fact gathering and runs `controller_known_hosts` entirely on localhost, before any SSH connection to the server. It uses `ssh-keygen -F` and `ssh-keygen -R` to remove only that target's entries from the controller user's `~/.ssh/known_hosts`, including hashed entries. It checks both `ansible_host` (falling back to the inventory hostname) and the inventory hostname, including its lowercase SSH alias. For a nonstandard `ansible_port`, it also checks `[hostname]:port` and `[IP]:port` entries. Missing files or matching entries require no changes.
 
-The remote bootstrap play uses Vault-provided SSH and privilege-escalation passwords. Its role order is `speedtest_cli`, `floatip_manager`, `ssh_security`, `cloudflare_dns`, `controller_ssh_config`, then a flush of pending SSH handlers and, as the final task, `system_update`:
+The remote bootstrap play uses Vault-provided SSH and privilege-escalation passwords. Its role order is `speedtest_cli`, `floatip_manager`, `ssh_security`, `cloudflare_dns`, `controller_ssh_config`, then a flush of pending SSH handlers, an SSH reconnect check, and as the final task, `system_update`:
 
 - `speedtest_cli` installs pinned Ookla Speedtest CLI on the supported architecture.
 - `floatip_manager` installs pinned `floatip` only on detected Hetzner hosts; it does not add/remove IP addresses.
 - `ssh_security` installs managed SSH public keys, deploys SSH hardening and notifies a service-restart handler on changes.
 - `cloudflare_dns` creates or updates the host's Cloudflare A record.
 - `controller_ssh_config` updates all inventory SSH shortcuts on the controller.
-- **Before the final update:** Ansible flushes pending SSH hardening handlers so a deferred SSH restart does not run after the upgrade.
+- **Before the final update:** Ansible flushes pending SSH hardening handlers, resets its SSH session and verifies that it can reconnect. This prevents starting a rebooting OS upgrade when hardened SSH access has become unusable.
 - **Last:** `system_update` performs the OS package upgrade and optional reboot, after a BIOS GRUB preflight. If the final step fails, earlier bootstrap actions may already have succeeded, but the play remains failed.
 
 **GRUB safety:** Debian-family systems using BIOS + `grub-pc` are inspected **read-only** before APT changes. Existing valid whole-disk GRUB selections are preserved. An absent or stale target is repaired via Debconf only if the firmware boot disk selection is unambiguous (single disk with a compatible partition layout). UEFI and non-`grub-pc` hosts are left untouched. Multi-disk, unknown or unsupported arrangements fail safely before the upgrade. The role never calls `grub-install` directly or answers "Continue without installing GRUB?" with Yes. Subsequent APT package scripts may install GRUB on the selected disk, so ensure backup and provider recovery console access before upgrading.
