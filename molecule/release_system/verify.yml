@@ -344,4 +344,3 @@
         that:
           - molecule_floatip_fallback_output.stdout == 'floatip-fallback-fixture'
           - floatip_manager_selected_ref == 'e541e59816647df25c771630e35c63eca532bde7'
-
