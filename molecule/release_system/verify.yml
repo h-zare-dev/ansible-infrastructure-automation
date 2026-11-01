@@ -74,7 +74,7 @@
     - name: Assert FloatIP fixture output
       ansible.builtin.assert:
         that:
-          - molecule_floatip_output.stdout == 'floatip-ci-fixture'
+          - molecule_floatip_output.stdout == 'floatip-stable-release-fixture'
 
     - name: Verify Port Forward Manager CLI is installed
       ansible.builtin.command:
@@ -310,3 +310,38 @@
         that:
           - molecule_pasarguard_cert.stat.exists
           - molecule_pasarguard_cert.stat.size > 0
+
+- name: Verify FloatIP fallback when no GitHub Release exists
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    floatip_manager_release_delegate: "{{ inventory_hostname }}"
+    floatip_manager_latest_release_url: http://127.0.0.1:18080/no-floatip-release.json
+    floatip_manager_raw_base_url: http://127.0.0.1:18080
+  tasks:
+    - name: Mark targets as Hetzner for fallback test
+      ansible.builtin.set_fact:
+        ansible_facts: >-
+          {{
+            ansible_facts
+            | combine({'system_vendor': 'Hetzner CI fixture'}, recursive=true)
+          }}
+
+    - name: Run fallback FloatIP installation against HTTP 404
+      ansible.builtin.include_role:
+        name: floatip_manager
+
+    - name: Check fallback FloatIP binary was installed
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/floatip
+      register: molecule_floatip_fallback_output
+      changed_when: false
+
+    - name: Assert no-Release fallback is the reviewed commit
+      ansible.builtin.assert:
+        that:
+          - molecule_floatip_fallback_output.stdout == 'floatip-fallback-fixture'
+          - floatip_manager_selected_ref == 'e541e59816647df25c771630e35c63eca532bde7'
+
