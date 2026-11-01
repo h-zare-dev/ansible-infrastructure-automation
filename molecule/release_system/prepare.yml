@@ -31,6 +31,40 @@
           set -euo pipefail
           echo "floatip-ci-fixture"
 
+    - name: Create FloatIP tagged release and pinned fallback fixture directories
+      ansible.builtin.file:
+        path: "/opt/ci-fixtures/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - v0.1.0
+        - e541e59816647df25c771630e35c63eca532bde7
+
+    - name: Provide mock stable FloatIP release executable
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/v0.1.0/floatip
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          echo "floatip-stable-release-fixture"
+
+    - name: Provide mock pinned FloatIP fallback executable
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/e541e59816647df25c771630e35c63eca532bde7/floatip
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          echo "floatip-fallback-fixture"
+
+    - name: Provide mock latest stable FloatIP GitHub release
+      ansible.builtin.copy:
+        dest: /opt/ci-fixtures/floatip-latest.json
+        mode: "0644"
+        content: |
+          {"tag_name":"v0.1.0","draft":false,"prerelease":false}
+
     - name: Install mock Port Forward Manager CLI fixture
       ansible.builtin.copy:
         dest: /opt/ci-fixtures/portfw-nft

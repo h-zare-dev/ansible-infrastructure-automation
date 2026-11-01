@@ -120,6 +120,48 @@ assert security_defaults["security_updates_reboot"] is False
 assert system_update_defaults["system_update_reboot"] is False
 assert optimization_defaults["optimization_live_qdisc_replace"] is False
 
+floatip_defaults = load_yaml("roles/floatip_manager/defaults/main.yml")
+assert floatip_defaults["floatip_manager_latest_release_url"].endswith(
+    "/h-zare-dev/floatip-manager/releases/latest"
+)
+assert floatip_defaults["floatip_manager_fallback_ref"] == (
+    "e541e59816647df25c771630e35c63eca532bde7"
+)
+assert floatip_defaults["floatip_manager_path"] == "/usr/local/sbin/floatip"
+floatip_plan = load_yaml("roles/floatip_manager/tasks/main.yml")
+floatip_task_names = [task["name"] for task in floatip_plan]
+assert floatip_task_names.index(
+    "Resolve latest stable FloatIP Manager release on controller"
+) < floatip_task_names.index(
+    "Install latest stable FloatIP Manager CLI on Hetzner hosts only"
+)
+floatip_release_lookup = next(
+    task for task in floatip_plan
+    if task["name"] == "Resolve latest stable FloatIP Manager release on controller"
+)
+assert floatip_release_lookup["delegate_to"] == "{{ floatip_manager_release_delegate }}"
+assert floatip_release_lookup["become"] is False
+assert floatip_release_lookup["run_once"] is True
+assert floatip_release_lookup["ansible.builtin.uri"]["status_code"] == [200, 404]
+floatip_install = next(
+    task for task in floatip_plan
+    if task["name"] == "Install latest stable FloatIP Manager CLI on Hetzner hosts only"
+)
+assert floatip_install["ansible.builtin.get_url"]["dest"] == "{{ floatip_manager_path }}"
+assert "floatip_manager_selected_ref" in floatip_install["ansible.builtin.get_url"]["url"]
+assert "hetzner" in floatip_install["when"]
+assert "floatip_manager_existing_ref != floatip_manager_selected_ref" in (
+    floatip_install["ansible.builtin.get_url"]["force"]
+)
+assert floatip_defaults["floatip_manager_installed_ref_path"] == (
+    "/usr/local/sbin/.floatip-manager-installed-ref"
+)
+assert floatip_task_names.index(
+    "Validate installed FloatIP Manager Bash syntax"
+) < floatip_task_names.index(
+    "Record successfully installed FloatIP Manager release reference"
+)
+
 floatip_tasks = (ROOT / "roles/floatip_manager/tasks/main.yml").read_text()
 for forbidden in ("netplan", "ip addr", "ip route", "systemd-networkd"):
     assert forbidden not in floatip_tasks, (
