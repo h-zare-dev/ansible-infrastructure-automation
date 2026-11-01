@@ -150,6 +150,17 @@ floatip_install = next(
 assert floatip_install["ansible.builtin.get_url"]["dest"] == "{{ floatip_manager_path }}"
 assert "floatip_manager_selected_ref" in floatip_install["ansible.builtin.get_url"]["url"]
 assert "hetzner" in floatip_install["when"]
+assert "floatip_manager_existing_ref != floatip_manager_selected_ref" in (
+    floatip_install["ansible.builtin.get_url"]["force"]
+)
+assert floatip_defaults["floatip_manager_installed_ref_path"] == (
+    "/usr/local/sbin/.floatip-manager-installed-ref"
+)
+assert floatip_task_names.index(
+    "Validate installed FloatIP Manager Bash syntax"
+) < floatip_task_names.index(
+    "Record successfully installed FloatIP Manager release reference"
+)
 
 floatip_tasks = (ROOT / "roles/floatip_manager/tasks/main.yml").read_text()
 for forbidden in ("netplan", "ip addr", "ip route", "systemd-networkd"):
