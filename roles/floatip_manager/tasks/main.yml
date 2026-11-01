@@ -63,6 +63,36 @@
       }}
   when: "'hetzner' in (ansible_facts.system_vendor | default('') | lower)"
 
+- name: Check installed FloatIP Manager executable
+  ansible.builtin.stat:
+    path: "{{ floatip_manager_path }}"
+  register: floatip_manager_existing_binary
+  when: "'hetzner' in (ansible_facts.system_vendor | default('') | lower)"
+
+- name: Check previously installed FloatIP Manager release reference
+  ansible.builtin.stat:
+    path: "{{ floatip_manager_installed_ref_path }}"
+  register: floatip_manager_existing_ref_file
+  when: "'hetzner' in (ansible_facts.system_vendor | default('') | lower)"
+
+- name: Read previously installed FloatIP Manager release reference
+  ansible.builtin.slurp:
+    src: "{{ floatip_manager_installed_ref_path }}"
+  register: floatip_manager_existing_ref_content
+  when:
+    - "'hetzner' in (ansible_facts.system_vendor | default('') | lower)"
+    - floatip_manager_existing_ref_file.stat.exists
+
+- name: Resolve currently installed FloatIP Manager release reference
+  ansible.builtin.set_fact:
+    floatip_manager_existing_ref: >-
+      {{
+        (floatip_manager_existing_ref_content.content | b64decode | trim)
+        if floatip_manager_existing_ref_file.stat.exists
+        else ''
+      }}
+  when: "'hetzner' in (ansible_facts.system_vendor | default('') | lower)"
+
 - name: Install latest stable FloatIP Manager CLI on Hetzner hosts only
   ansible.builtin.get_url:
     url: "{{ floatip_manager_raw_base_url }}/{{ floatip_manager_selected_ref }}/floatip"
@@ -70,6 +100,13 @@
     owner: root
     group: root
     mode: "0755"
+    # get_url can retain a previous artifact when remote URLs have matching
+    # timestamps/headers. Force replacement on an actual selected-ref change.
+    force: >-
+      {{
+        not floatip_manager_existing_binary.stat.exists
+        or floatip_manager_existing_ref != floatip_manager_selected_ref
+      }}
   when: "'hetzner' in (ansible_facts.system_vendor | default('') | lower)"
 
 - name: Validate installed FloatIP Manager Bash syntax
@@ -79,6 +116,17 @@
       - -n
       - "{{ floatip_manager_path }}"
   changed_when: false
+  when:
+    - "'hetzner' in (ansible_facts.system_vendor | default('') | lower)"
+    - not ansible_check_mode
+
+- name: Record successfully installed FloatIP Manager release reference
+  ansible.builtin.copy:
+    dest: "{{ floatip_manager_installed_ref_path }}"
+    content: "{{ floatip_manager_selected_ref }}\n"
+    owner: root
+    group: root
+    mode: "0644"
   when:
     - "'hetzner' in (ansible_facts.system_vendor | default('') | lower)"
     - not ansible_check_mode
