@@ -339,8 +339,14 @@
       register: molecule_floatip_fallback_output
       changed_when: false
 
-    - name: Assert no-Release fallback is the reviewed commit
+    - name: Read installed FloatIP reference after fallback
+      ansible.builtin.slurp:
+        src: /usr/local/sbin/.floatip-manager-installed-ref
+      register: molecule_floatip_fallback_marker
+
+    - name: Assert fallback replaced the stable binary and recorded its ref
       ansible.builtin.assert:
         that:
           - molecule_floatip_fallback_output.stdout == 'floatip-fallback-fixture'
           - floatip_manager_selected_ref == 'e541e59816647df25c771630e35c63eca532bde7'
+          - (molecule_floatip_fallback_marker.content | b64decode | trim) == floatip_manager_selected_ref
