@@ -35,7 +35,7 @@ Ongoing fleet system upgrades, security-update policy, ICMP control, and optimiz
 - Automatic reboot disabled for unattended security updates
 - Independent operational playbooks for system updates, security updates, ping control, Port Forward Manager, and native network optimization
 - Pinned Ookla Speedtest CLI installation on supported hosts
-- Pinned `floatip-manager` installation on detected Hetzner hosts
+- Latest stable `floatip-manager` GitHub Release installation on detected Hetzner hosts, with a pinned fallback until the first release
 - Dedicated `port_forward_nodes` group for pinned native nftables v2 forwarding, DNS refresh service/timer installation, and legacy-safe coexistence
 - RAM-aware, non-regressive BBR/conntrack/TCP tuning with Ansible check-mode support
 - Ansible Vault integration for secrets and environment-specific values
@@ -600,7 +600,7 @@ The former `common` role was split into focused responsibilities. Current roles 
 | `dns_resolver` | Configure systemd-resolved DNS and restart it when needed. |
 | `base_packages` | Install the baseline APT packages. |
 | `speedtest_cli` | Install pinned Ookla Speedtest CLI 1.2.0; currently validates `x86_64`. |
-| `floatip_manager` | Install the pinned `floatip` command on detected Hetzner hosts without changing addresses during installation. |
+| `floatip_manager` | Install the latest stable `floatip` GitHub Release on detected Hetzner hosts, falling back to a reviewed pinned commit while no Release exists; never changes addresses during installation. |
 | `monitoring` | Install Node Exporter and generate inventory-driven Prometheus targets. |
 | `docker` | Install and start Docker Engine and its plugins. |
 | `pasarguard` | Install and configure the PasarGuard node. |
@@ -653,7 +653,9 @@ The public half is read from the controller path referenced by `vault_ssh_public
 
 ## Floating IP Manager
 
-`floatip_manager` installs a commit-pinned copy of `h-zare-dev/floatip-manager` as `/usr/local/sbin/floatip` only on hosts whose detected system vendor contains `hetzner`. Installation itself does not add, delete, or replace any floating IP. Address management remains an explicit operator action through the installed command.
+`floatip_manager` installs **only** the upstream `floatip` executable as `/usr/local/sbin/floatip` on hosts whose detected `system_vendor` includes `hetzner`. The controller checks the newest **published, non-draft, non-prerelease** GitHub Release using `https://api.github.com/repos/h-zare-dev/floatip-manager/releases/latest` once per Ansible play. It accepts stable tags of the form `vMAJOR.MINOR.PATCH` and downloads `https://raw.githubusercontent.com/h-zare-dev/floatip-manager/<tag>/floatip`. The same tag is used for all Hetzner hosts in that play. No Release means the API returns 404: until the first release is published, the role logs that it is using the pinned fallback commit `e541e59816647df25c771630e35c63eca532bde7` (including the November 2026 networkd race fix). Other GitHub API failures and malformed release metadata are errors, not silently treated as a missing release. An upstream change on `main` alone **does not** trigger a new version; publish a stable GitHub Release to enable automatic version selection.
+
+The role uses `get_url` to update the CLI **only when `site.yml` is run**; it is not a background updater. Downloading and Bash syntax validation do not run the tool, execute upstream `install.sh`, invoke `netplan` / `networkctl` / `ip addr`, change live addresses, or restart networking. The CLI remains owner `root`, mode `0755`. When there are no Hetzner hosts in the Ansible play, the GitHub request is skipped. Overrides `floatip_manager_latest_release_url`, `floatip_manager_raw_base_url`, and `floatip_manager_release_delegate` exist for tests or explicit deployments.
 
 ---
 
