@@ -11,6 +11,7 @@
 
 - name: Install automatic security update tooling
   ansible.builtin.apt:
+    lock_timeout: 300
     name:
       - unattended-upgrades
       - apt-listchanges

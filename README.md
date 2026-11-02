@@ -887,6 +887,12 @@ Do not rerun publication for an existing tag/version expecting to overwrite it, 
 
 # CI and Validation
 
+The mandatory **Secret Scan** job runs Gitleaks (pinned to a reviewed action commit) against Git history. It joins Repository Validation and Molecule Integration in the `CI Gate` dependency list. A detected secret fails the gate; the owner must treat a leaked credential as compromised and rotate/revoke it, not merely delete it from a later commit. No production credentials or hosts are supplied to CI.
+
+**Operational-failure contracts** enforce bounded APT lock waits during system/security maintenance, the existing SSH reconnect-before-upgrade policy, configured reboot timeouts, and fail-closed release metadata checks. These are isolated policy/negative-case unit tests, not production fault-injection tests. See [Operational hardening and remaining test gaps](docs/operational-hardening.md).
+
+**Artifact integrity gap:** FloatIP Manager and Port Forward Manager upstream GitHub Releases currently expose no signed assets or checksum manifests. The current download path uses HTTPS, validated stable tags and syntax checks but **does not** cryptographically authenticate an artifact against an independently trusted digest. A future upstream manifest/signature and verified pin are needed before claiming checksum enforcement.
+
 GitHub Actions is the authoritative validation environment for pull requests and protected branches. The Ansible controller does not need Python development packages, `ansible-lint`, `yamllint`, or Galaxy validation dependencies installed merely to validate repository changes.
 
 The workflow is defined in:
@@ -922,6 +928,8 @@ The CI workflow has a stable final status named `CI Gate`.
    - contract-tests Cloudflare, Docker, FloatIP separation, optimization non-goals, and branch/playbook topology without contacting provider APIs
    - exercises optimization tier/capacity calculations with synthetic host facts
    - renders optimization, firewall, and watchdog artifacts and validates them with Bash syntax checks, ShellCheck, and `systemd-analyze verify`
+
+The additional **Secret Scan** job is required for all pull requests and protected-branch pushes; `CI Gate` fails when it does not succeed.
 
 For normal feature/fix PRs targeting `development`, Full Release Qualification is skipped to keep feedback fast. It becomes mandatory on the protected promotion path to `main`. The final `CI Gate` fails whenever a mandatory release qualification run does not succeed.
 

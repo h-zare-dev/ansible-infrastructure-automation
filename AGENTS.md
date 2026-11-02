@@ -76,18 +76,23 @@ Rules:
 ## Current Behavioral Contracts
 
 - `bootstrap.yml` is the initial onboarding workflow.
-  - It clears only the selected target's stale controller host-key entries.
-  - The remote role order is `system_update`, `speedtest_cli`, `floatip_manager`, `ssh_security`, `cloudflare_dns`, `controller_ssh_config`.
+  - Its first play runs `controller_known_hosts` on localhost before connecting remotely, clearing **all entries** in the controller user's configured `known_hosts` file (not only the selected target). This removes trust records for unrelated hosts too; verify new SSH host keys independently.
+  - Its remote roles run in order: `ssh_security`, `cloudflare_dns`, `controller_ssh_config`.
+  - The remote tasks flush SSH handlers, reset the SSH connection, require a successful bounded `wait_for_connection` check, and **last** run `system_update` with reboot-on-required enabled.
+  - `speedtest_cli` and `floatip_manager` are intentionally omitted from Bootstrap and are installed only by `site.yml`.
+  - `ansible.cfg` currently sets `host_key_checking = False`. This is a security risk; do not enable host-key checking or change the global wipe behavior without a separately reviewed SSH trust/bootstrap migration.
 - `site.yml` is the main desired-state workflow.
   - The all-host play includes SSH/controller config, Cloudflare DNS, hostname, resolver, base packages, Speedtest CLI, FloatIP manager, and monitoring.
   - PasarGuard-specific roles remain scoped to `pasarguard_nodes`.
+  - The native `port_forward_manager` role is limited to `port_forward_nodes`; it installs the tool and units without activating or modifying live forwarding or legacy state.
 - `floatip_manager` installs only on hosts detected as Hetzner and must not change floating addresses merely by being installed.
 - `optimization` runs only through `playbooks/operations/optimize.yml`; it is not part of `site.yml`.
   - The default host pattern is `common`.
   - `optimize_hosts` can explicitly override that pattern.
   - The repository-owned native role must keep its pre/post network and Docker safety assertions.
   - Normal converged runs are expected to be idempotent and `--check --diff` must remain non-mutating.
-- `security-updates.yml`, `system-update.yml`, and `ping-control.yml` remain independent operational playbooks.
+- `security-updates.yml`, `system-update.yml`, `ping-control.yml`, and `port-forward-manager.yml` remain independent operational playbooks.
+  - The two maintenance update playbooks target `all` with `serial: 1`; their APT tasks must use a bounded `lock_timeout` and must not kill package-manager processes or delete lock files.
 - `security_updates` keeps unattended security installation enabled while automatic reboot remains disabled by default.
   - `needrestart` may restart ordinary services automatically, but critical network-manager services are excluded by default and deferred to controlled maintenance.
 - Monitoring target generation remains inventory-driven.
@@ -112,12 +117,18 @@ Before declaring a repository change ready for merge:
 2. Confirm no unrelated files changed.
 3. Confirm no secrets, real inventory, private keys, or production values were introduced.
 4. Push the feature/fix branch and allow the repository CI workflow to run.
-5. Require the `CI Gate` status to pass before merge.
+5. Require the `CI Gate` status to pass before merge, including the mandatory `Secret Scan` job.
 6. Treat local `./scripts/validate.sh` execution as optional developer convenience, not a merge requirement.
 7. For promotion to `main`, require Full Release Qualification to pass in addition to the normal CI jobs.
 8. State clearly which production tests remain operator-only.
 
-The CI workflow installs its own pinned validation toolchain, uses only sanitized/example fixtures, and must never contact production hosts. `CI Gate` always requires repository validation and core Molecule integration. On `development`, `main`, and PRs targeting `main`, it also requires Full Release Qualification. Full Release Qualification may use disposable privileged containers, but must not use production credentials, provider APIs, or production hosts.
+The CI workflow installs its own pinned validation toolchain, uses only sanitized/example fixtures, and must never contact production hosts. The pinned secret scanner examines repository history without using production credentials. `CI Gate` always requires repository validation, Secret Scan, and core Molecule integration. On `development`, `main`, and PRs targeting `main`, it also requires Full Release Qualification. Full Release Qualification may use disposable privileged containers, but must not use production credentials, provider APIs, or production hosts.
+
+## Operator-only safety boundaries
+
+- Upstream FloatIP and native Port Forward Manager releases currently publish no checksum/signature assets. GitHub Release tag validation, HTTPS downloads, and syntax checks are **not** independent artifact authenticity verification. Do not claim checksum enforcement exists until a trusted release manifest/signature and verification mechanism are implemented.
+- CI fault contracts check bounded APT-lock waits, SSH reconnection and reboot timeout policies, and fail-closed release metadata handling. They are not a substitute for live fault injection against real servers.
+- Follow the test scope and remaining gaps in `docs/operational-hardening.md`.
 
 ## Change Workflow
 
