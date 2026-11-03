@@ -17,6 +17,10 @@ echo "==> BIOS GRUB preflight safety contracts"
 python3 -m unittest discover -s tests/release -p 'test_grub_preflight.py' -v
 
 echo
+echo "==> Operational failure and security contracts"
+python3 -m unittest discover -s tests/release -p 'test_operational_hardening.py' -v
+
+echo
 echo "==> Optimization capacity contracts"
 ansible-playbook -i localhost, tests/release/optimization_contract.yml
 

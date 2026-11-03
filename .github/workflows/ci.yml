@@ -141,6 +141,25 @@ jobs:
           grep -Fq "systemd\\-networkd\\.service" "$work_dir/needrestart.conf"
           grep -Fq "NetworkManager\\.service" "$work_dir/needrestart.conf"
 
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout full history for secret detection
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan for exposed secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
   molecule:
     name: Molecule Integration
     runs-on: ubuntu-24.04
@@ -233,6 +252,7 @@ jobs:
     if: always()
     needs:
       - validation
+      - secret-scan
       - molecule
       - release-qualification
 
@@ -240,6 +260,7 @@ jobs:
       - name: Require all CI jobs to pass
         env:
           VALIDATION_RESULT: ${{ needs.validation.result }}
+          SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
           MOLECULE_RESULT: ${{ needs.molecule.result }}
           RELEASE_RESULT: ${{ needs.release-qualification.result }}
         run: |
@@ -255,6 +276,11 @@ jobs:
 
           if [[ "$VALIDATION_RESULT" != "success" ]]; then
             echo "Repository Validation result: $VALIDATION_RESULT"
+            exit 1
+          fi
+
+          if [[ "$SECRET_SCAN_RESULT" != "success" ]]; then
+            echo "Secret Scan result: $SECRET_SCAN_RESULT"
             exit 1
           fi
 
