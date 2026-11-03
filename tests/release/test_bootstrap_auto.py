@@ -96,11 +96,30 @@ class BootstrapPlaybookContracts(unittest.TestCase):
         self.assertFalse(auto[0]["gather_facts"])
         self.assertEqual(auto[0]["serial"], 1)
         self.assertEqual(auto[1]["ansible.builtin.import_playbook"], "bootstrap.yml")
-        self.assertEqual(auto[1]["vars"]["bootstrap_host"], "__bootstrap_auto_pending")
+        self.assertIn("__bootstrap_auto_pending", auto[1]["vars"]["bootstrap_host"])
+        self.assertIn("all:!all", auto[1]["vars"]["bootstrap_host"])
         self.assertTrue(auto[1]["vars"]["bootstrap_auto_mode"])
         self.assertEqual(auto[2]["hosts"], "all")
         self.assertTrue(all(t.get("run_once") and t.get("delegate_to") == "localhost" for t in auto[2]["tasks"]))
         self.assertNotIn("bootstrap_candidates", read("inventory/hosts.example.ini"))
+
+    def test_empty_candidate_group_uses_safe_noop_host_pattern(self):
+        from jinja2 import Environment
+
+        auto = load("playbooks/bootstrap-auto.yml")
+        selector = Environment().from_string(auto[1]["vars"]["bootstrap_host"])
+        # Empty group must not trigger a warning for an unknown host pattern.
+        self.assertEqual(selector.render(groups={"all": ["node-01"]}).strip(), "all:!all")
+        self.assertEqual(
+            selector.render(groups={"all": ["node-01"], "__bootstrap_auto_pending": []}).strip(),
+            "all:!all",
+        )
+        # Non-empty group must retain the original Bootstrap target.
+        self.assertEqual(
+            selector.render(groups={"all": ["node-01"], "__bootstrap_auto_pending": ["node-01"]}).strip(),
+            "__bootstrap_auto_pending",
+        )
+        self.assertNotIn("host_pattern_mismatch", read("ansible.cfg"))
 
     def test_only_explicit_fresh_candidates_may_run(self):
         tasks = load("playbooks/bootstrap-auto.yml")[0]["tasks"]
