@@ -52,6 +52,40 @@
           {{ (bootstrap_auto_password_probe.stdout_lines | default([]) | last | default('') | trim)
              if (bootstrap_auto_password_probe.rc | default(1) | int == 0) else '' }}
 
+    - name: Verify configured Ansible public key is already authorized for key-only hosts
+      ansible.builtin.raw: |
+        expected={{ lookup('file', vault_ssh_public_key_path).split()[1] | quote }}
+        if [ -r "$HOME/.ssh/authorized_keys" ]; then
+          awk -v expected="$expected" '
+            { for (i = 1; i <= NF; i++) if ($i == expected) found = 1 }
+            END { print found ? "KEY_MATCH" : "KEY_UNKNOWN" }
+          ' "$HOME/.ssh/authorized_keys"
+        else
+          printf '%s\n' KEY_UNKNOWN
+        fi
+      become: false
+      vars:
+        ansible_password: ""
+        ansible_ssh_extra_args: >-
+          -o ControlMaster=no -o ControlPath=none -o BatchMode=yes
+          -o PreferredAuthentications=publickey -o PasswordAuthentication=no
+          -o KbdInteractiveAuthentication=no -o ConnectTimeout=8
+      register: bootstrap_auto_authorized_key_probe
+      changed_when: false
+      failed_when: false
+      ignore_unreachable: true
+      check_mode: false
+      no_log: true
+      when:
+        - bootstrap_auto_key_code == 'NEW'
+        - bootstrap_auto_password_code != 'NEW'
+
+    - name: Parse authorized-key verification result
+      ansible.builtin.set_fact:
+        bootstrap_auto_verified_key_code: >-
+          {{ (bootstrap_auto_authorized_key_probe.stdout_lines | default([]) | last | default('') | trim)
+             if (bootstrap_auto_authorized_key_probe.rc | default(1) | int == 0) else '' }}
+
     - name: Classify host without changing it
       ansible.builtin.set_fact:
         bootstrap_auto_status: >-
@@ -61,8 +95,13 @@
              else 'review_hardening' if 'HARDENING_UNKNOWN' in [bootstrap_auto_key_code, bootstrap_auto_password_code]
              else 'managed_key_unavailable' if bootstrap_auto_password_code == 'MARKED'
              else 'candidate' if bootstrap_auto_password_code == 'NEW'
+             else 'candidate_key' if bootstrap_auto_key_code == 'NEW' and bootstrap_auto_verified_key_code == 'KEY_MATCH'
              else 'key_only_unmanaged' if bootstrap_auto_key_code == 'NEW'
              else 'unreachable' }}
+
+    - name: Choose bootstrap authentication for this host
+      ansible.builtin.set_fact:
+        bootstrap_auto_auth_method: "{{ 'key' if bootstrap_auto_status == 'candidate_key' else 'password' }}"
 
     - name: Display discovery result without secrets
       ansible.builtin.debug:
@@ -78,7 +117,7 @@
         key: __bootstrap_auto_pending
       changed_when: false
       when:
-        - bootstrap_auto_status == 'candidate'
+        - bootstrap_auto_status in ['candidate', 'candidate_key']
         - not (bootstrap_auto_discover_only | bool)
 
 # Reuse the manually tested Bootstrap workflow without repeating its roles.
@@ -102,6 +141,7 @@
         msg:
           managed: "{{ groups.get('__bootstrap_auto_status_managed', []) | sort }}"
           fresh: "{{ groups.get('__bootstrap_auto_status_candidate', []) | sort }}"
+          fresh_with_key: "{{ groups.get('__bootstrap_auto_status_candidate_key', []) | sort }}"
           needs_adoption: "{{ groups.get('__bootstrap_auto_status_needs_adoption', []) | sort }}"
           invalid_marker: "{{ groups.get('__bootstrap_auto_status_invalid_marker', []) | sort }}"
           hardening_review: "{{ groups.get('__bootstrap_auto_status_review_hardening', []) | sort }}"

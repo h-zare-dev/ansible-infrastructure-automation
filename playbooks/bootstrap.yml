@@ -14,7 +14,15 @@
     - vars/bootstrap-marker.yml
 
   vars:
-    ansible_password: "{{ vault_ansible_password }}"
+    # A verified key-only auto-candidate must not receive the Vault login password.
+    # Existing password-based and manual Bootstrap remain unchanged.
+    ansible_password: >-
+      {{
+        none
+        if (bootstrap_auto_mode | default(false) | bool)
+        and (bootstrap_auto_auth_method | default('password')) == 'key'
+        else vault_ansible_password
+      }}
     ansible_become_pass: "{{ vault_ansible_become_pass }}"
     system_update_reboot: true
 

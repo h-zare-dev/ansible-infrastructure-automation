@@ -285,7 +285,7 @@ Use the correct connection variables for the environment.
 servers directly to their existing functional groups in private
 `inventory/hosts.ini`. After one-time Marker adoption on previously
 bootstrapped servers, use a single command to discover and bootstrap only
-positively identified fresh machines:
+positively identified fresh machines, including preauthorized SSH-key-only hosts whose official Ansible public key matches their authorized key:
 
 ```bash
 ansible-playbook playbooks/bootstrap-auto.yml
