@@ -29,7 +29,7 @@
           {{ (bootstrap_auto_key_probe.stdout_lines | default([]) | last | default('') | trim)
              if (bootstrap_auto_key_probe.rc | default(1) | int == 0) else '' }}
 
-    - name: Check unmarked hosts using initial password only
+    - name: Check hosts without working key-based access using initial password
       ansible.builtin.raw: "{{ bootstrap_probe_command }}"
       become: false
       vars:
@@ -44,7 +44,10 @@
       ignore_unreachable: true
       check_mode: false
       no_log: true
-      when: bootstrap_auto_key_code not in ['MARKED', 'INVALID', 'HARDENED', 'HARDENING_UNKNOWN']
+      # A valid key-only probe (including NEW) needs no password attempt.
+      # Avoid an expected SSH authentication rejection from being logged as
+      # UNREACHABLE before key-authorized fresh hosts can be selected.
+      when: bootstrap_auto_key_code == ''
 
     - name: Parse initial password probe response
       ansible.builtin.set_fact:

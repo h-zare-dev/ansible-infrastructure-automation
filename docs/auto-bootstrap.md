@@ -56,7 +56,11 @@ Every host is checked using read-only POSIX commands via SSH, with no
 Python dependency. A key-only probe runs first; for hosts not already clearly
 managed, a password-only probe uses the existing Vault initial SSH password.
 SSH multiplexing is disabled for the probes so a key connection cannot be
-mistaken for a successful password login. For a key-only NEW host, a third
+mistaken for a successful password login. **When the key-only probe succeeds,
+the initial-password probe is skipped entirely**; password fallback is
+attempted only when key-based access cannot be established. This avoids
+a misleading `UNREACHABLE` authentication error for newly provisioned
+SSH-key hosts (for example OneProvider). For a key-only NEW host, a third
 read-only probe checks whether the public key configured by
 `vault_ssh_public_key_path` is already present in the SSH account's
 `~/.ssh/authorized_keys`. If it matches, Bootstrap runs using the working
@@ -77,8 +81,8 @@ classification is displayed.
 | Hardening present but unexpected | Skip and report `review_hardening` |
 | Marker incomplete, invalid, or a symlink | Skip and report `invalid_marker` |
 | No marker and no hardening; **initial password login works** | Bootstrap as `candidate` |
-| Key works, no marker/hardening, password fails, and official Ansible public key is already authorized | Bootstrap as `candidate_key` over SSH Key |
-| Key works, no marker/hardening, password fails, but official Ansible public key cannot be confirmed | Skip as `key_only_unmanaged` for review |
+| Key works, no marker/hardening, and the official Ansible public key is already authorized | Bootstrap as `candidate_key` over SSH Key (no password probe) |
+| Key works, no marker/hardening, but official Ansible public key cannot be confirmed | Skip as `key_only_unmanaged` for review |
 | Neither probe works | Skip as `unreachable` |
 
 The one-time adoption playbook connects only via SSH **public key** and
