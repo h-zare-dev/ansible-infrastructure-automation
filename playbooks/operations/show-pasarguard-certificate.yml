@@ -5,6 +5,9 @@
 - name: Show PasarGuard certificate from the selected node
   hosts: pasarguard_nodes
   gather_facts: false
+  # pause displays once per batch; serial: 1 ensures one copyable PEM block
+  # per target when the operator selects multiple PasarGuard nodes.
+  serial: 1
   become: true
   vars_files:
     - ../../roles/pasarguard/defaults/main.yml
@@ -48,10 +51,16 @@
       register: pasarguard_certificate_pem
       changed_when: false
 
-    - name: Show certificate metadata
-      ansible.builtin.debug:
-        msg: "{{ inventory_hostname }}: {{ pasarguard_certificate_details.stdout_lines }}"
+    # The default debug callback JSON-escapes embedded newlines as \n.
+    # A timed pause renders prompt text verbatim on the controller without
+    # accepting input. No host data is written and no cert is stored locally.
+    - name: Display copy-ready public certificate with actual line breaks
+      ansible.builtin.pause:
+        seconds: 1
+        prompt: |-
 
-    - name: Show public certificate PEM without copying it to controller disk
-      ansible.builtin.debug:
-        msg: "{{ pasarguard_certificate_pem.stdout }}"
+          ========== PasarGuard Certificate: {{ inventory_hostname }} ==========
+          {{ pasarguard_certificate_details.stdout }}
+
+          {{ pasarguard_certificate_pem.stdout | trim }}
+          ========== End public certificate: {{ inventory_hostname }} ==========
