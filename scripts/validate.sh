@@ -71,6 +71,27 @@ ansible-playbook -i "$INVENTORY" -c local playbooks/operations/bootstrap-adopt-e
   -e '{"bootstrap_adopt_dry_run": true, "bootstrap_probe_command": "printf HARDENED"}'
 
 echo
+echo "==> Checking zero-candidate Auto Bootstrap remains warning-free and idempotent"
+# Exercise the real non-preview Auto Bootstrap path against a local CI fixture.
+# With a valid mocked marker, no host must enter SSH hardening or OS updates.
+# Do NOT globally disable host-pattern mismatch warnings in ansible.cfg.
+bootstrap_noop_log="$(mktemp)"
+if ! ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
+  --limit node-01 \
+  -e '{"bootstrap_probe_command": "printf MARKED"}' >"$bootstrap_noop_log" 2>&1; then
+  cat "$bootstrap_noop_log"
+  rm -f -- "$bootstrap_noop_log"
+  exit 1
+fi
+cat "$bootstrap_noop_log"
+if grep -Eq 'Could not match supplied host pattern|ignoring: __bootstrap_auto_pending|changed=[1-9]|failed=[1-9]|unreachable=[1-9]' "$bootstrap_noop_log"; then
+  echo "ERROR: no-candidate Auto Bootstrap produced a mismatch warning or modified a host."
+  rm -f -- "$bootstrap_noop_log"
+  exit 1
+fi
+rm -f -- "$bootstrap_noop_log"
+
+echo
 echo "==> Running ansible-lint"
 ansible-lint --offline playbooks roles molecule tests/release
 
