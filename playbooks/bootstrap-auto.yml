@@ -88,12 +88,15 @@
     bootstrap_auto_mode: true
 
 - name: Report discovery issues after the selected hosts finish
-  hosts: localhost
+  hosts: all
   gather_facts: false
   vars_files:
     - vars/bootstrap-marker.yml
   tasks:
     - name: Show host classifications
+      delegate_to: localhost
+      become: false
+      run_once: true
       ansible.builtin.debug:
         msg:
           managed: "{{ groups.get('__bootstrap_auto_status_managed', []) | sort }}"
@@ -107,6 +110,9 @@
           discovery_only: "{{ bootstrap_auto_discover_only | bool }}"
 
     - name: Fail rather than silently accept unresolved inventory hosts
+      delegate_to: localhost
+      become: false
+      run_once: true
       ansible.builtin.assert:
         that:
           - groups.get('__bootstrap_auto_status_needs_adoption', []) | length == 0
