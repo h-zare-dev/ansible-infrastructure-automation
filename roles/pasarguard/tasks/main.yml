@@ -28,4 +28,3 @@
     cmd: "{{ pasarguard_binary_path }} restart --no-logs"
   when:
     - pg_protocol.changed or pg_install.changed
-
