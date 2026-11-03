@@ -787,9 +787,10 @@ also contains a private key. The operation is read-only and reports expiry
 information; **it does not issue or renew certificates**. The result is
 displayed as a **copy-ready, real multi-line PEM block**: copy the lines
 from `-----BEGIN CERTIFICATE-----` through `-----END CERTIFICATE-----`.
-No `\\n` text or JSON quotes need to be removed. A 1-second non-interactive
-display is used to bypass Ansible's JSON-escaped debug format; multi-node
-inspection displays one complete certificate per host.
+No \n text or JSON quotes need to be removed. A dedicated aggregate
+callback prints the original public X.509 PEM without altering the default
+Ansible output for other tasks. Multiple nodes each get a separate block,
+with no interactive pauses.
 
 Previous `site.yml` versions may have left stale `*_cert.pem` copies
 under `/opt/pasarguard/certs` on the controller. New runs will not update

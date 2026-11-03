@@ -16,7 +16,6 @@ class PasarguardCertificateContracts(unittest.TestCase):
         play = load("playbooks/operations/show-pasarguard-certificate.yml")[0]
         self.assertEqual(play["hosts"], "pasarguard_nodes")
         self.assertFalse(play["gather_facts"])
-        self.assertEqual(play["serial"], 1)
         self.assertTrue(play["become"])
         self.assertIn("../../roles/pasarguard/defaults/main.yml", play["vars_files"])
         tasks = play["tasks"]
@@ -43,13 +42,10 @@ class PasarguardCertificateContracts(unittest.TestCase):
         self.assertIn("-fingerprint", commands[0]["argv"])
         self.assertIn("-dates", commands[0]["argv"])
         self.assertTrue(all(t["changed_when"] is False for t in tasks if "ansible.builtin.command" in t))
-        display = next(t for t in tasks if "ansible.builtin.pause" in t)
-        self.assertEqual(display["ansible.builtin.pause"]["seconds"], 1)
-        prompt = display["ansible.builtin.pause"]["prompt"]
-        self.assertIn("{{ pasarguard_certificate_pem.stdout | trim }}", prompt)
-        self.assertIn("{{ pasarguard_certificate_details.stdout }}", prompt)
-        self.assertIn("{{ inventory_hostname }}", prompt)
+        self.assertFalse(any("ansible.builtin.pause" in t for t in tasks))
         self.assertFalse(any("ansible.builtin.debug" in t for t in tasks))
+        self.assertIn("callback_plugins", (ROOT / "ansible.cfg").read_text())
+        self.assertIn("callbacks_enabled", (ROOT / "ansible.cfg").read_text())
         self.assertFalse(any("ansible.builtin.fetch" in t for t in load("roles/pasarguard/tasks/main.yml")))
 
     def test_installer_keeps_api_key_out_of_task_logs(self):
