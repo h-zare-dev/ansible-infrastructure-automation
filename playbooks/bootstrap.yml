@@ -3,11 +3,15 @@
   hosts: "{{ bootstrap_host }}"
   gather_facts: false
   roles:
-    - controller_known_hosts
+    - role: controller_known_hosts
+      when: not (bootstrap_auto_mode | default(false) | bool)
 
 - name: Bootstrap server
   hosts: "{{ bootstrap_host }}"
   become: "{{ ansible_user != 'root' }}"
+  serial: 1
+  vars_files:
+    - vars/bootstrap-marker.yml
 
   vars:
     ansible_password: "{{ vault_ansible_password }}"
@@ -35,6 +39,15 @@
         sleep: 2
         timeout: 120
 
-    - name: Perform system update as final bootstrap step
+    - name: Perform system update as final bootstrap operation
       ansible.builtin.include_role:
         name: system_update
+
+    - name: Record completion after OS update and any required reboot
+      ansible.builtin.copy:
+        dest: "{{ bootstrap_marker_path }}"
+        content: "{{ bootstrap_marker_content }}"
+        owner: root
+        group: root
+        mode: "0644"
+      when: not ansible_check_mode

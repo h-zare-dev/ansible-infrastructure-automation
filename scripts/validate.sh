@@ -55,6 +55,10 @@ echo "==> Checking operational failure and CI security contracts"
 python3 -m unittest discover -s tests/release -p 'test_operational_hardening.py' -v
 
 echo
+echo "==> Checking automatic Bootstrap marker and discovery contracts"
+python3 -m unittest discover -s tests/release -p 'test_bootstrap_auto.py' -v
+
+echo
 echo "==> Running ansible-lint"
 ansible-lint --offline playbooks roles molecule tests/release
 
