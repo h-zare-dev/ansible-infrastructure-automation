@@ -1,0 +1,121 @@
+---
+# In-memory selection only; the existing inventory file is never rewritten.
+- name: Discover bootstrap status on every inventory host
+  hosts: all
+  gather_facts: false
+  serial: 1
+  vars_files:
+    - vars/bootstrap-marker.yml
+  tasks:
+    - name: Check marker and hardening with key-only SSH
+      ansible.builtin.raw: "{{ bootstrap_probe_command }}"
+      become: false
+      vars:
+        ansible_password: ""
+        ansible_ssh_extra_args: >-
+          -o ControlMaster=no -o ControlPath=none -o BatchMode=yes
+          -o PreferredAuthentications=publickey -o PasswordAuthentication=no
+          -o KbdInteractiveAuthentication=no -o ConnectTimeout=8
+      register: bootstrap_auto_key_probe
+      changed_when: false
+      failed_when: false
+      ignore_unreachable: true
+      check_mode: false
+      no_log: true
+
+    - name: Parse key-only SSH probe response
+      ansible.builtin.set_fact:
+        bootstrap_auto_key_code: >-
+          {{ (bootstrap_auto_key_probe.stdout_lines | default([]) | last | default('') | trim)
+             if (bootstrap_auto_key_probe.rc | default(1) | int == 0) else '' }}
+
+    - name: Check unmarked hosts using initial password only
+      ansible.builtin.raw: "{{ bootstrap_probe_command }}"
+      become: false
+      vars:
+        ansible_password: "{{ vault_ansible_password }}"
+        ansible_ssh_extra_args: >-
+          -o ControlMaster=no -o ControlPath=none -o BatchMode=no
+          -o PreferredAuthentications=password,keyboard-interactive
+          -o PubkeyAuthentication=no -o ConnectTimeout=8
+      register: bootstrap_auto_password_probe
+      changed_when: false
+      failed_when: false
+      ignore_unreachable: true
+      check_mode: false
+      no_log: true
+      when: bootstrap_auto_key_code not in ['MARKED', 'INVALID', 'HARDENED', 'HARDENING_UNKNOWN']
+
+    - name: Parse initial password probe response
+      ansible.builtin.set_fact:
+        bootstrap_auto_password_code: >-
+          {{ (bootstrap_auto_password_probe.stdout_lines | default([]) | last | default('') | trim)
+             if (bootstrap_auto_password_probe.rc | default(1) | int == 0) else '' }}
+
+    - name: Classify host without changing it
+      ansible.builtin.set_fact:
+        bootstrap_auto_status: >-
+          {{ 'managed' if bootstrap_auto_key_code == 'MARKED'
+             else 'invalid_marker' if 'INVALID' in [bootstrap_auto_key_code, bootstrap_auto_password_code]
+             else 'needs_adoption' if 'HARDENED' in [bootstrap_auto_key_code, bootstrap_auto_password_code]
+             else 'review_hardening' if 'HARDENING_UNKNOWN' in [bootstrap_auto_key_code, bootstrap_auto_password_code]
+             else 'managed_key_unavailable' if bootstrap_auto_password_code == 'MARKED'
+             else 'candidate' if bootstrap_auto_password_code == 'NEW'
+             else 'key_only_unmanaged' if bootstrap_auto_key_code == 'NEW'
+             else 'unreachable' }}
+
+    - name: Display discovery result without secrets
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ bootstrap_auto_status }}"
+
+    - name: Group status in memory for summary
+      ansible.builtin.group_by:
+        key: "__bootstrap_auto_status_{{ bootstrap_auto_status }}"
+      changed_when: false
+
+    - name: Add positively verified fresh hosts to ephemeral bootstrap target
+      ansible.builtin.group_by:
+        key: __bootstrap_auto_pending
+      changed_when: false
+      when:
+        - bootstrap_auto_status == 'candidate'
+        - not (bootstrap_auto_discover_only | bool)
+
+# Reuse the manually tested Bootstrap workflow without repeating its roles.
+- ansible.builtin.import_playbook: bootstrap.yml
+  vars:
+    bootstrap_host: __bootstrap_auto_pending
+    bootstrap_auto_mode: true
+
+- name: Report discovery issues after the selected hosts finish
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/bootstrap-marker.yml
+  tasks:
+    - name: Show host classifications
+      ansible.builtin.debug:
+        msg:
+          managed: "{{ groups.get('__bootstrap_auto_status_managed', []) | sort }}"
+          fresh: "{{ groups.get('__bootstrap_auto_status_candidate', []) | sort }}"
+          needs_adoption: "{{ groups.get('__bootstrap_auto_status_needs_adoption', []) | sort }}"
+          invalid_marker: "{{ groups.get('__bootstrap_auto_status_invalid_marker', []) | sort }}"
+          hardening_review: "{{ groups.get('__bootstrap_auto_status_review_hardening', []) | sort }}"
+          key_auth_failure: "{{ groups.get('__bootstrap_auto_status_managed_key_unavailable', []) | sort }}"
+          key_only_unmanaged: "{{ groups.get('__bootstrap_auto_status_key_only_unmanaged', []) | sort }}"
+          unreachable: "{{ groups.get('__bootstrap_auto_status_unreachable', []) | sort }}"
+          discovery_only: "{{ bootstrap_auto_discover_only | bool }}"
+
+    - name: Fail rather than silently accept unresolved inventory hosts
+      ansible.builtin.assert:
+        that:
+          - groups.get('__bootstrap_auto_status_needs_adoption', []) | length == 0
+          - groups.get('__bootstrap_auto_status_invalid_marker', []) | length == 0
+          - groups.get('__bootstrap_auto_status_review_hardening', []) | length == 0
+          - groups.get('__bootstrap_auto_status_managed_key_unavailable', []) | length == 0
+          - groups.get('__bootstrap_auto_status_key_only_unmanaged', []) | length == 0
+          - groups.get('__bootstrap_auto_status_unreachable', []) | length == 0
+        fail_msg: >-
+          Some hosts could not safely be auto-bootstrapped. See their status
+          above and docs/auto-bootstrap.md for controlled recovery.
+      when: not (bootstrap_auto_discover_only | bool)
