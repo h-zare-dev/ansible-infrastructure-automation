@@ -299,17 +299,16 @@
       delegate_to: localhost
       changed_when: false
 
-    - name: Verify PasarGuard certificate fetch artifact
+    - name: Verify PasarGuard certificate is not copied to controller
       ansible.builtin.stat:
         path: /tmp/ansible-release-controller/certs/release-ubuntu-2404_cert.pem
       delegate_to: localhost
       register: molecule_pasarguard_cert
 
-    - name: Assert PasarGuard certificate fetch artifact exists
+    - name: Assert legacy controller certificate cache is not created
       ansible.builtin.assert:
         that:
-          - molecule_pasarguard_cert.stat.exists
-          - molecule_pasarguard_cert.stat.size > 0
+          - not molecule_pasarguard_cert.stat.exists
 
 - name: Verify FloatIP fallback when no GitHub Release exists
   hosts: all

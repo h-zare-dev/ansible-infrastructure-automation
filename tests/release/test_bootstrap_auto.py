@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -29,8 +30,12 @@ class MarkerProbeTests(unittest.TestCase):
         shared = load("playbooks/vars/bootstrap-marker.yml")
         self.probe_script = shared["bootstrap_probe_command"]
         self.probe_script = self.probe_script.replace(
-            shared["bootstrap_marker_path"], str(self.marker)
-        ).replace(shared["bootstrap_hardening_path"], str(self.hardening))
+            "{{ bootstrap_marker_path | quote }}", shlex.quote(str(self.marker))
+        ).replace(
+            "{{ bootstrap_hardening_path | quote }}", shlex.quote(str(self.hardening))
+        )
+        self.assertNotIn("{{", self.probe_script)
+        self.assertNotIn("/var/lib/ansible-bootstrap-complete", self.probe_script)
 
     def probe(self):
         result = subprocess.run(
@@ -82,6 +87,15 @@ class MarkerProbeTests(unittest.TestCase):
             "PasswordAuthentication no\nPubkeyAuthentication yes\n"
         )
         self.assertEqual(self.probe(), "INVALID")
+
+    def test_probe_uses_shared_marker_and_hardening_path_variables(self):
+        shared = load("playbooks/vars/bootstrap-marker.yml")
+        source = shared["bootstrap_probe_command"]
+        self.assertIn("{{ bootstrap_marker_path | quote }}", source)
+        self.assertIn("{{ bootstrap_hardening_path | quote }}", source)
+        self.assertNotIn(shared["bootstrap_marker_path"], source)
+        self.assertNotIn(shared["bootstrap_hardening_path"], source)
+        self.assertNotIn("bootstrap_adopt_dry_run", shared)
 
     def test_probe_is_read_only(self):
         before = list(Path(self.tmp.name).iterdir())
@@ -253,20 +267,6 @@ class BootstrapPlaybookContracts(unittest.TestCase):
                     bootstrap_auto_verified_key_code=verified_key_code,
                 ).strip()
                 self.assertEqual(actual, expected)
-
-    def test_adoption_requires_hardening_and_key_only_access(self):
-        adopt = load("playbooks/operations/bootstrap-adopt-existing.yml")
-        self.assertEqual(len(adopt), 1)
-        self.assertEqual(adopt[0]["hosts"], "all")
-        self.assertEqual(adopt[0]["serial"], 1)
-        tasks = adopt[0]["tasks"]
-        self.assertEqual(tasks[0]["vars"]["ansible_password"], "")
-        self.assertTrue(tasks[0]["no_log"])
-        copy_task = next(t for t in tasks if "ansible.builtin.copy" in t)
-        self.assertIn("bootstrap_adopt_status == 'HARDENED'", copy_task["when"])
-        self.assertIn("bootstrap_adopt_dry_run", " ".join(copy_task["when"]))
-        self.assertEqual(copy_task["ansible.builtin.copy"]["mode"], "0644")
-        self.assertNotIn("system_update", read("playbooks/operations/bootstrap-adopt-existing.yml"))
 
     def test_manual_bootstrap_records_success_only_after_update(self):
         bootstrap = load("playbooks/bootstrap.yml")

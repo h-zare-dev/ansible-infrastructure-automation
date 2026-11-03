@@ -6,30 +6,17 @@ Add new servers to their **normal functional groups** in the private
 `inventory/hosts.ini` exactly once. Do not create or move hosts between a
 temporary bootstrap group and their final group.
 
-This workflow has two one-time/recurring commands:
-
-1. On the existing managed fleet **once**, after confirming those hosts really
-   completed Bootstrap, adopt their state by writing a completion marker.
-2. For every future batch, add new hosts to `hosts.ini` and run a single
-   auto-bootstrap command. Existing marked hosts are skipped.
+The existing fleet completed its one-time Marker migration; that migration
+Playbook has been retired. For each new batch, add fresh hosts to `hosts.ini`
+and run Auto Bootstrap. Existing marked hosts are skipped.
 
 The persistent state file is `/var/lib/ansible-bootstrap-complete`, with the
 exact content `completed` plus newline, owned by root and mode 0644.
 
 ## Commands
 
-Preview one-time marker adoption without changing hosts:
-
-```bash
-ansible-playbook playbooks/operations/bootstrap-adopt-existing.yml \
-  -e bootstrap_adopt_dry_run=true
-```
-
-After confirming the existing hosts are actually managed, adopt them once:
-
-```bash
-ansible-playbook playbooks/operations/bootstrap-adopt-existing.yml
-```
+The retired one-time adoption utility is not part of future onboarding.
+Do not bulk-mark incomplete or unverified hosts.
 
 Preview the entire inventory **without making changes**:
 
@@ -85,12 +72,10 @@ classification is displayed.
 | Key works, no marker/hardening, but official Ansible public key cannot be confirmed | Skip as `key_only_unmanaged` for review |
 | Neither probe works | Skip as `unreachable` |
 
-The one-time adoption playbook connects only via SSH **public key** and
-writes a marker only when the current Ansible SSH hardening file has
-`PasswordAuthentication no` and `PubkeyAuthentication yes`. It never
-attempts password login, reboots, runs Bootstrap or changes network settings.
-The existence of hardening alone does not prove all historical DNS/update
-steps completed: the operator must confirm that before adopting existing hosts.
+The existence of SSH hardening alone does not prove the full Bootstrap
+completed. A host with this state is reported as `needs_adoption` and must
+be reviewed and recovered manually. The former bulk-adoption command was
+retired after the previous fleet migration.
 
 Internal Ansible runtime groups are used only to pass verified candidates
 to the shared Bootstrap playbook. When none exist, the imported Bootstrap
@@ -130,7 +115,7 @@ If Bootstrap stops mid-operation, the marker stays absent. If hardening was
 installed, the next auto-run reports `needs_adoption` rather than retrying a
 partially configured machine. Investigate the cause, then recover explicitly
 using the manual procedure. Invalid marker files are never overwritten by
-discovery or automatic adoption.
+discovery or automatic Bootstrap.
 
 After processing eligible new hosts, unresolved inventory states cause
 a non-success summary to avoid falsely claiming the fleet is fully onboarded.
@@ -141,16 +126,15 @@ Use preview first and a new disposable canary before a large rollout.
 GitHub Actions tests the probe against temporary local fixtures for new,
 marked, unmarked/hardened, partially marked, unexpected-hardening and symlink
 states. Contract tests enforce the key-first/password-second flow, secret
-suppression, marker-last policy, serial execution, adoption restrictions
-and in-memory candidate targeting. Release contracts also verify that automatic
+suppression, marker-last policy and in-memory candidate targeting. Release contracts also verify that automatic
 discovery has no serial batch cap, that automatic Bootstrap uses one 100%
 batch, manual Bootstrap retains serial 1, controller config is a singleton
 write, and Cloudflare records remain per-host. No CI job uses real inventory, passwords
 or production servers.
 
 Actual new-server password or key login, SSH cutover and reboot require
-controlled operator tests after merging to `development`. A read-only
-canary using `--limit OneProvider-IT -e bootstrap_auto_discover_only=true`
-should first show `candidate_key`. Do not perform a changing run until the
-server host fingerprint and configured Ansible public/private key pair have
-been verified out of band.
+controlled operator tests. Before changing a fresh canary, use
+`--limit NEW_HOST -e bootstrap_auto_discover_only=true` and verify the
+server host fingerprint and Ansible public/private key pair out of band.
+The preview should report `candidate` or `candidate_key` only when the
+corresponding authentication gate succeeds.

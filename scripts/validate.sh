@@ -59,6 +59,39 @@ echo "==> Checking automatic Bootstrap marker and discovery contracts"
 python3 -m unittest discover -s tests/release -p 'test_bootstrap_auto.py' -v
 
 echo
+echo "==> Verifying safe read-only PasarGuard certificate viewing"
+python3 -m unittest discover -s tests/release -p 'test_pasarguard_certificate.py' -v
+# Generate a disposable local certificate and intentionally append its private
+# key. The show-only playbook MUST print just the X.509 public certificate.
+cert_fixture_dir="$inventory_dir/cert-fixture"
+mkdir -p -- "$cert_fixture_dir"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj "/CN=ci.example.invalid" \
+  -keyout "$cert_fixture_dir/private.key" \
+  -out "$cert_fixture_dir/public.pem" >/dev/null 2>&1
+cat "$cert_fixture_dir/public.pem" "$cert_fixture_dir/private.key" > "$cert_fixture_dir/combined.pem"
+cert_view_log="$(mktemp)"
+if ! ansible-playbook -i "$INVENTORY" -c local \
+  playbooks/operations/show-pasarguard-certificate.yml \
+  --limit node-01 \
+  -e ansible_become=false \
+  -e "pasarguard_cert_path=$cert_fixture_dir/combined.pem" \
+  >"$cert_view_log" 2>&1; then
+  cat "$cert_view_log"
+  rm -f -- "$cert_view_log"
+  exit 1
+fi
+cat "$cert_view_log"
+grep -Fq -- 'BEGIN CERTIFICATE' "$cert_view_log"
+grep -Fq -- 'Fingerprint=' "$cert_view_log"
+if grep -Eq -- 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|unreachable=[1-9]|failed=[1-9]|changed=[1-9]' "$cert_view_log"; then
+  echo "ERROR: certificate view exposed a private key or changed/failed."
+  rm -f -- "$cert_view_log"
+  exit 1
+fi
+rm -f -- "$cert_view_log"
+
+echo
 echo "==> Running isolated read-only Bootstrap previews against CI fixtures"
 # Keep the CI fixture independent of the production controller's real SSH key.
 # The marker probe runs locally; the fixture key is never a usable credential.
@@ -71,9 +104,6 @@ ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
   --limit node-01 \
   -e '{"bootstrap_auto_discover_only": true, "bootstrap_probe_command": "printf NEW"}' \
   -e "vault_ssh_public_key_path=$bootstrap_fixture_pubkey"
-ansible-playbook -i "$INVENTORY" -c local playbooks/operations/bootstrap-adopt-existing.yml \
-  --limit node-01 \
-  -e '{"bootstrap_adopt_dry_run": true, "bootstrap_probe_command": "printf HARDENED"}'
 
 echo
 echo "==> Checking zero-candidate Auto Bootstrap remains warning-free and idempotent"

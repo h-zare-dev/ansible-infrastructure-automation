@@ -84,7 +84,9 @@ Rules:
 - `bootstrap-auto.yml` inspects all inventory hosts without changing inventory groups on disk. Only hosts without a valid Marker or managed hardening **and** with confirmed initial-password SSH access, or key-only SSH access whose configured official Ansible public key is already authorized, may be automatically bootstrapped together in a single unrestricted Ansible
   batch. Manual `bootstrap.yml` remains sequential by default. Do not add
   fixed-size `serial` limits to automatic discovery or Bootstrap. Unreachable, ambiguous or partially managed hosts must be skipped and explicitly reported.
-- `operations/bootstrap-adopt-existing.yml` is one-time key-only adoption: mark only verified hardened servers without password login, updates or service restarts. Never infer complete Bootstrap from a missing Marker.
+- The completed one-time fleet Marker adoption workflow was retired; do not
+  reintroduce bulk marker writing. Never infer successful Bootstrap from a
+  missing Marker or from a hardening file alone.
 - `site.yml` is the main desired-state workflow.
   - The all-host play includes SSH/controller config, Cloudflare DNS, hostname, resolver, base packages, Speedtest CLI, FloatIP manager, and monitoring.
   - PasarGuard-specific roles remain scoped to `pasarguard_nodes`.
@@ -95,10 +97,23 @@ Rules:
   - `optimize_hosts` can explicitly override that pattern.
   - The repository-owned native role must keep its pre/post network and Docker safety assertions.
   - Normal converged runs are expected to be idempotent and `--check --diff` must remain non-mutating.
-- `security-updates.yml`, `system-update.yml`, `ping-control.yml`, and `port-forward-manager.yml` remain independent operational playbooks.
+- `security-updates.yml`, `system-update.yml`, `ping-control.yml`,
+  `optimize.yml`, and `show-pasarguard-certificate.yml` remain
+  independent operational playbooks. Standalone `security.yml` and
+  `port-forward-manager.yml` were retired; their roles still run in `site.yml`.
   - The two maintenance update playbooks target `all` with `serial: 1`; their APT tasks must use a bounded `lock_timeout` and must not kill package-manager processes or delete lock files.
+  - `system_update` is Debian-family only; unsupported families must fail
+    without making package changes.
 - `security_updates` keeps unattended security installation enabled while automatic reboot remains disabled by default.
   - `needrestart` may restart ordinary services automatically, but critical network-manager services are excluded by default and deferred to controlled maintenance.
+- The PasarGuard installer command includes a credential and must retain
+  `no_log: true`. Only its credential-bearing task is censored; ordinary
+  diagnostics remain visible. Never copy node certificates to the controller.
+  Use the read-only `show-pasarguard-certificate.yml` operation to display
+  public X.509 PEM, validity dates and fingerprint from the remote source;
+  never expose a private key or imply that the operation renews certificates.
+- The `abuse_firewall_script_path` default is the sole source for the
+  deployed script path, scheduled cron job, and initial-update handler.
 - Monitoring target generation remains inventory-driven.
 - Public repository files remain sanitized.
 - Real inventory, real Vault files, Vault passwords, and private keys remain excluded from Git.
