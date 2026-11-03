@@ -59,6 +59,18 @@ echo "==> Checking automatic Bootstrap marker and discovery contracts"
 python3 -m unittest discover -s tests/release -p 'test_bootstrap_auto.py' -v
 
 echo
+echo "==> Running isolated read-only Bootstrap previews against CI fixtures"
+ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
+  --limit node-01 \
+  -e '{"bootstrap_auto_discover_only": true, "bootstrap_probe_command": "printf MARKED"}'
+ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
+  --limit node-01 \
+  -e '{"bootstrap_auto_discover_only": true, "bootstrap_probe_command": "printf NEW"}'
+ansible-playbook -i "$INVENTORY" -c local playbooks/operations/bootstrap-adopt-existing.yml \
+  --limit node-01 \
+  -e '{"bootstrap_adopt_dry_run": true, "bootstrap_probe_command": "printf HARDENED"}'
+
+echo
 echo "==> Running ansible-lint"
 ansible-lint --offline playbooks roles molecule tests/release
 
