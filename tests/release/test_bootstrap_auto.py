@@ -109,31 +109,77 @@ class BootstrapPlaybookContracts(unittest.TestCase):
             if task.get("ansible.builtin.group_by", {}).get("key")
             == "__bootstrap_auto_pending"
         )
-        self.assertIn("bootstrap_auto_status == 'candidate'", pending["when"])
+        self.assertIn("bootstrap_auto_status in ['candidate', 'candidate_key']", pending["when"])
         self.assertIn("bootstrap_auto_discover_only", " ".join(pending["when"]))
         self.assertFalse(pending["changed_when"])
 
     def test_probe_authentication_isolated_and_secrets_hidden(self):
         tasks = load("playbooks/bootstrap-auto.yml")[0]["tasks"]
         probes = [task for task in tasks if "ansible.builtin.raw" in task]
-        self.assertEqual(len(probes), 2)
+        self.assertEqual(len(probes), 3)
         self.assertEqual(probes[0]["vars"]["ansible_password"], "")
         self.assertIn("vault_ansible_password", probes[1]["vars"]["ansible_password"])
         self.assertIn("ControlPath=none", probes[0]["vars"]["ansible_ssh_extra_args"])
         self.assertIn("ControlPath=none", probes[1]["vars"]["ansible_ssh_extra_args"])
         self.assertIn("PubkeyAuthentication=no", probes[1]["vars"]["ansible_ssh_extra_args"])
         self.assertIn("bootstrap_auto_key_code", probes[1]["when"])
+        self.assertEqual(probes[2]["vars"]["ansible_password"], "")
+        self.assertIn("ControlPath=none", probes[2]["vars"]["ansible_ssh_extra_args"])
+        self.assertIn("PreferredAuthentications=publickey", probes[2]["vars"]["ansible_ssh_extra_args"])
+        self.assertIn("bootstrap_auto_key_code == 'NEW'", probes[2]["when"])
+        self.assertIn("bootstrap_auto_password_code != 'NEW'", probes[2]["when"])
+        self.assertIn("vault_ssh_public_key_path", probes[2]["ansible.builtin.raw"])
+        self.assertIn("authorized_keys", probes[2]["ansible.builtin.raw"])
         self.assertTrue(all(t["no_log"] and t["ignore_unreachable"] for t in probes))
         self.assertTrue(all(not t["changed_when"] for t in probes))
         expr = next(
             t for t in tasks if t["name"] == "Classify host without changing it"
         )["ansible.builtin.set_fact"]["bootstrap_auto_status"]
         for state in (
-            "managed", "candidate", "needs_adoption", "invalid_marker",
+            "managed", "candidate", "candidate_key", "needs_adoption", "invalid_marker",
             "review_hardening", "managed_key_unavailable",
             "key_only_unmanaged", "unreachable",
         ):
             self.assertIn(state, expr)
+
+    def test_authentication_mode_never_uses_vault_password_for_key_only(self):
+        auto_tasks = load("playbooks/bootstrap-auto.yml")[0]["tasks"]
+        mode = next(t for t in auto_tasks if t["name"] == "Choose bootstrap authentication for this host")
+        self.assertIn("candidate_key", mode["ansible.builtin.set_fact"]["bootstrap_auto_auth_method"])
+        bootstrap = load("playbooks/bootstrap.yml")
+        password = bootstrap[1]["vars"]["ansible_password"]
+        self.assertIn("bootstrap_auto_mode", password)
+        self.assertIn("bootstrap_auto_auth_method", password)
+        self.assertIn("none", password)
+        self.assertIn("vault_ansible_password", password)
+
+    def test_key_only_candidate_classification_matrix(self):
+        from jinja2 import Environment
+
+        tasks = load("playbooks/bootstrap-auto.yml")[0]["tasks"]
+        expr = next(t for t in tasks if t["name"] == "Classify host without changing it")[
+            "ansible.builtin.set_fact"
+        ]["bootstrap_auto_status"]
+        template = Environment().from_string(expr)
+
+        cases = [
+            ("MARKED", "", "", "managed"),
+            ("INVALID", "", "", "invalid_marker"),
+            ("HARDENED", "", "", "needs_adoption"),
+            ("NEW", "NEW", "", "candidate"),
+            ("NEW", "", "KEY_MATCH", "candidate_key"),
+            ("NEW", "", "KEY_UNKNOWN", "key_only_unmanaged"),
+            ("NEW", "", "", "key_only_unmanaged"),
+            ("", "", "", "unreachable"),
+        ]
+        for key_code, password_code, verified_key_code, expected in cases:
+            with self.subTest(key=key_code, password=password_code, authorized=verified_key_code):
+                actual = template.render(
+                    bootstrap_auto_key_code=key_code,
+                    bootstrap_auto_password_code=password_code,
+                    bootstrap_auto_verified_key_code=verified_key_code,
+                ).strip()
+                self.assertEqual(actual, expected)
 
     def test_adoption_requires_hardening_and_key_only_access(self):
         adopt = load("playbooks/operations/bootstrap-adopt-existing.yml")
