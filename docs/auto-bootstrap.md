@@ -56,8 +56,18 @@ Every host is checked using read-only POSIX commands via SSH, with no
 Python dependency. A key-only probe runs first; for hosts not already clearly
 managed, a password-only probe uses the existing Vault initial SSH password.
 SSH multiplexing is disabled for the probes so a key connection cannot be
-mistaken for a successful password login. Passwords and probe output are
-suppressed in Ansible logs; only the final classification is displayed.
+mistaken for a successful password login. For a key-only NEW host, a third
+read-only probe checks whether the public key configured by
+`vault_ssh_public_key_path` is already present in the SSH account's
+`~/.ssh/authorized_keys`. If it matches, Bootstrap runs using the working
+SSH Key and does not supply the initial Vault login password.
+This reduces the risk that exclusive authorized-key configuration replaces
+a working key with an unrelated one. Operators must still independently
+verify the server host fingerprint and that the matching private key is
+available to the Ansible controller. Without a key match, the host stays
+unmodified for review.
+Passwords and probe output are suppressed in Ansible logs; only the final
+classification is displayed.
 
 | Result | Action |
 | --- | --- |
@@ -67,7 +77,8 @@ suppressed in Ansible logs; only the final classification is displayed.
 | Hardening present but unexpected | Skip and report `review_hardening` |
 | Marker incomplete, invalid, or a symlink | Skip and report `invalid_marker` |
 | No marker and no hardening; **initial password login works** | Bootstrap as `candidate` |
-| Key works, but no marker/hardening and password fails | Skip as `key_only_unmanaged` |
+| Key works, no marker/hardening, password fails, and official Ansible public key is already authorized | Bootstrap as `candidate_key` over SSH Key |
+| Key works, no marker/hardening, password fails, but official Ansible public key cannot be confirmed | Skip as `key_only_unmanaged` for review |
 | Neither probe works | Skip as `unreachable` |
 
 The one-time adoption playbook connects only via SSH **public key** and
@@ -111,5 +122,9 @@ suppression, marker-last policy, serial execution, adoption restrictions
 and in-memory candidate targeting. No CI job uses real inventory, passwords
 or production servers.
 
-Actual new-server password login, SSH cutover and reboot require controlled
-operator tests after merging to `development`.
+Actual new-server password or key login, SSH cutover and reboot require
+controlled operator tests after merging to `development`. A read-only
+canary using `--limit OneProvider-IT -e bootstrap_auto_discover_only=true`
+should first show `candidate_key`. Do not perform a changing run until the
+server host fingerprint and configured Ansible public/private key pair have
+been verified out of band.
