@@ -98,7 +98,22 @@ uses the intentionally empty `all:!all` host intersection instead of a missing
 runtime group. This prevents the noisy `__bootstrap_auto_pending` pattern
 warning without disabling warnings for genuine misspelled inventory hosts.
 Nothing writes to or modifies `hosts.ini`.
-Bootstrap processes targets sequentially (`serial: 1`). Automatic mode skips
+Automatic discovery uses the same no-`serial` model as `site.yml`.
+All verified new hosts run in a **single Ansible batch**, with no fixed
+5-, 10-, or other host-count limit. Package upgrades and reboot operations
+can therefore progress on multiple new servers instead of finishing one
+entire host before starting another. The normal Ansible `forks` worker
+setting still controls how many host tasks execute at the exact same instant;
+we do not modify its global value. To use more workers on a large rollout,
+an operator may choose `-f 20` or another count explicitly.
+
+Manual `bootstrap.yml` remains sequential by default. The
+`controller_ssh_config` role is already delegated to localhost with
+`run_once`, so the shared controller SSH config is generated just once
+for the single automatic Bootstrap batch. Cloudflare DNS records are
+per-host (`inventory_hostname`), allowing distinct records to be updated
+concurrently. Any host that fails before the final step remains unmarked;
+other eligible hosts may finish. Automatic mode skips
 the old manual Bootstrap behavior that globally emptied the controller
 `known_hosts`; manual Bootstrap still preserves that historical behavior.
 The controller currently has `host_key_checking=False`, which weakens SSH
@@ -127,7 +142,10 @@ GitHub Actions tests the probe against temporary local fixtures for new,
 marked, unmarked/hardened, partially marked, unexpected-hardening and symlink
 states. Contract tests enforce the key-first/password-second flow, secret
 suppression, marker-last policy, serial execution, adoption restrictions
-and in-memory candidate targeting. No CI job uses real inventory, passwords
+and in-memory candidate targeting. Release contracts also verify that automatic
+discovery has no serial batch cap, that automatic Bootstrap uses one 100%
+batch, manual Bootstrap retains serial 1, controller config is a singleton
+write, and Cloudflare records remain per-host. No CI job uses real inventory, passwords
 or production servers.
 
 Actual new-server password or key login, SSH cutover and reboot require
