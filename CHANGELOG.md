@@ -6,6 +6,23 @@ The project follows Semantic Versioning for published releases.
 
 ## [Unreleased]
 
+### Cleanup and operational improvements
+- Retired the completed one-time Bootstrap Marker adoption utility and two
+  redundant standalone playbooks (SSH security and Port Forward Manager).
+  Their active roles remain in the standard Bootstrap/Site workflows.
+- Kept existing automatic Bootstrap Marker safety checks and made the
+  probe use the shared Marker and SSH hardening paths.
+- Removed unsupported RedHat package-maintenance code; Debian-family
+  system updates remain in place.
+- Stopped copying PasarGuard SSL certificates to the Ansible controller;
+  added read-only `show-pasarguard-certificate.yml` for direct public X.509
+  PEM, fingerprint and validity inspection on selected nodes.
+- Protected the credential-bearing PasarGuard installer task output while
+  retaining normal operational logging and current controller `known_hosts`
+  clearing behavior.
+- Reused the Abuse Defender script path default in deployment, cron and
+  handler, and removed obsolete migration documentation and CI checks.
+
 ## [1.1.0] - 2026-10-22
 
 Adds group-based, standalone installation and maintenance of iptables Port Forward Manager, improves controller SSH host-key cleanup reliability, and completes operational documentation.

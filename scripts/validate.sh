@@ -83,7 +83,7 @@ if ! ansible-playbook -i "$INVENTORY" -c local \
 fi
 cat "$cert_view_log"
 grep -Fq -- 'BEGIN CERTIFICATE' "$cert_view_log"
-grep -Fq -- 'SHA256 Fingerprint' "$cert_view_log"
+grep -Fq -- 'Fingerprint=' "$cert_view_log"
 if grep -Eq -- 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|unreachable=[1-9]|failed=[1-9]|changed=[1-9]' "$cert_view_log"; then
   echo "ERROR: certificate view exposed a private key or changed/failed."
   rm -f -- "$cert_view_log"
