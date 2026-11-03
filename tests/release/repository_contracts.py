@@ -75,7 +75,9 @@ marker_task = bootstrap_final_tasks[-1]["ansible.builtin.copy"]
 assert marker_task["dest"] == "{{ bootstrap_marker_path }}"
 assert marker_task["content"] == "{{ bootstrap_marker_content }}"
 assert marker_task["mode"] == "0644"
-assert bootstrap[1]["serial"] == 1
+assert "bootstrap_auto_mode" in bootstrap[1]["serial"]
+assert "100%" in bootstrap[1]["serial"]
+assert "else 1" in bootstrap[1]["serial"]
 assert "bootstrap_auto_mode" in bootstrap[0]["roles"][0]["when"]
 
 debian_update = load_yaml("roles/system_update/tasks/debian.yml")
