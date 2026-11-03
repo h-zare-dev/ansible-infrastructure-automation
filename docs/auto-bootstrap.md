@@ -89,7 +89,11 @@ The existence of hardening alone does not prove all historical DNS/update
 steps completed: the operator must confirm that before adopting existing hosts.
 
 Internal Ansible runtime groups are used only to pass verified candidates
-to the shared Bootstrap playbook. Nothing writes to or modifies `hosts.ini`.
+to the shared Bootstrap playbook. When none exist, the imported Bootstrap
+uses the intentionally empty `all:!all` host intersection instead of a missing
+runtime group. This prevents the noisy `__bootstrap_auto_pending` pattern
+warning without disabling warnings for genuine misspelled inventory hosts.
+Nothing writes to or modifies `hosts.ini`.
 Bootstrap processes targets sequentially (`serial: 1`). Automatic mode skips
 the old manual Bootstrap behavior that globally emptied the controller
 `known_hosts`; manual Bootstrap still preserves that historical behavior.
