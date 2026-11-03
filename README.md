@@ -291,6 +291,12 @@ positively identified fresh machines, including preauthorized SSH-key-only hosts
 ansible-playbook playbooks/bootstrap-auto.yml
 ```
 
+Auto Bootstrap discovers and bootstraps **all eligible new hosts together**
+(no fixed serial batch cap), like `site.yml`. Standard Ansible `forks`
+still controls task workers; use `-f 20` to request more concurrent workers
+when needed. Manual `bootstrap.yml` remains sequential.
+See [Auto Bootstrap details](docs/auto-bootstrap.md#how-discovery-works).
+
 One-time Marker adoption for verified previously managed servers:
 
 ```bash
