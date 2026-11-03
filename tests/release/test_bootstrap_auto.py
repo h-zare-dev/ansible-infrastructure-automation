@@ -141,6 +141,8 @@ class BootstrapPlaybookContracts(unittest.TestCase):
         self.assertIn("ControlPath=none", probes[0]["vars"]["ansible_ssh_extra_args"])
         self.assertIn("ControlPath=none", probes[1]["vars"]["ansible_ssh_extra_args"])
         self.assertIn("PubkeyAuthentication=no", probes[1]["vars"]["ansible_ssh_extra_args"])
+        self.assertEqual(probes[1]["when"], "bootstrap_auto_key_code == ''")
+        self.assertNotIn("ignore_errors", probes[1])
         self.assertIn("bootstrap_auto_key_code", probes[1]["when"])
         self.assertEqual(probes[2]["vars"]["ansible_password"], "")
         self.assertIn("ControlPath=none", probes[2]["vars"]["ansible_ssh_extra_args"])
@@ -160,6 +162,23 @@ class BootstrapPlaybookContracts(unittest.TestCase):
             "key_only_unmanaged", "unreachable",
         ):
             self.assertIn(state, expr)
+
+    def test_key_connected_fresh_host_never_attempts_password_fallback(self):
+        # The first probe can return NEW via a working SSH key on a newly
+        # provisioned provider host. A password-only SSH attempt would emit
+        # a noisy (but ignored) UNREACHABLE error on such machines.
+        from jinja2 import Environment
+
+        tasks = load("playbooks/bootstrap-auto.yml")[0]["tasks"]
+        password_probe = next(
+            t for t in tasks if t["name"].startswith("Check hosts without working key")
+        )
+        when = Environment().from_string("{{ " + password_probe["when"] + " }}")
+        self.assertEqual(when.render(bootstrap_auto_key_code="NEW"), "False")
+        self.assertEqual(when.render(bootstrap_auto_key_code="MARKED"), "False")
+        self.assertEqual(when.render(bootstrap_auto_key_code="HARDENED"), "False")
+        self.assertEqual(when.render(bootstrap_auto_key_code="INVALID"), "False")
+        self.assertEqual(when.render(bootstrap_auto_key_code=""), "True")
 
     def test_authentication_mode_never_uses_vault_password_for_key_only(self):
         auto_tasks = load("playbooks/bootstrap-auto.yml")[0]["tasks"]
