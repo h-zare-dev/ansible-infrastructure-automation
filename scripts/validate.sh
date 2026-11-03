@@ -87,7 +87,8 @@ mapfile -d '' -t playbooks < <(
 )
 
 for playbook in "${playbooks[@]}"; do
-  if [[ "$playbook" == "playbooks/bootstrap.yml" ]]; then
+  # Shared vars/*.yml are YAML mappings, not executable playbooks.
+  if [[ "$playbook" == "playbooks/bootstrap.yml" || "$playbook" == playbooks/vars/* ]]; then
     continue
   fi
   echo
