@@ -47,11 +47,3 @@
           - PEM
       register: pasarguard_certificate_pem
       changed_when: false
-
-    - name: Show certificate metadata
-      ansible.builtin.debug:
-        msg: "{{ inventory_hostname }}: {{ pasarguard_certificate_details.stdout_lines }}"
-
-    - name: Show public certificate PEM without copying it to controller disk
-      ansible.builtin.debug:
-        msg: "{{ pasarguard_certificate_pem.stdout }}"

@@ -82,8 +82,27 @@ if ! ansible-playbook -i "$INVENTORY" -c local \
   exit 1
 fi
 cat "$cert_view_log"
-grep -Fq -- 'BEGIN CERTIFICATE' "$cert_view_log"
-grep -Fq -- 'Fingerprint=' "$cert_view_log"
+# Decode ANSI colors from Actions and verify real PEM lines, not JSON \\n.
+python3 - "$cert_view_log" <<'PY'
+import pathlib
+import re
+import sys
+
+log = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+plain = re.sub(r"\x1b\[[0-9;]*m", "", log)
+lines = plain.splitlines()
+start = lines.index("-----BEGIN CERTIFICATE-----")
+end = lines.index("-----END CERTIFICATE-----", start + 1)
+pem_lines = lines[start + 1:end]
+assert pem_lines, "Missing certificate Base64 body"
+assert all(re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", line) for line in pem_lines), "Malformed PEM body"
+assert all(len(line) <= 64 for line in pem_lines), "Unexpected PEM line length"
+assert "sha256 Fingerprint=" in plain, "Missing SHA256 metadata"
+assert "notBefore=" in plain and "notAfter=" in plain, "Missing validity metadata"
+assert r"\n" not in "\n".join(lines[start:end + 1]), "Escaped newlines in certificate block"
+assert "PRIVATE KEY-----" not in plain, "Private key exposed"
+print("Copy-ready multi-line public PEM verified; no escaped newlines or private key.")
+PY
 if grep -Eq -- 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|unreachable=[1-9]|failed=[1-9]|changed=[1-9]' "$cert_view_log"; then
   echo "ERROR: certificate view exposed a private key or changed/failed."
   rm -f -- "$cert_view_log"

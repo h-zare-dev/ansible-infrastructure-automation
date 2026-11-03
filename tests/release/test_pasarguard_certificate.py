@@ -42,6 +42,10 @@ class PasarguardCertificateContracts(unittest.TestCase):
         self.assertIn("-fingerprint", commands[0]["argv"])
         self.assertIn("-dates", commands[0]["argv"])
         self.assertTrue(all(t["changed_when"] is False for t in tasks if "ansible.builtin.command" in t))
+        self.assertFalse(any("ansible.builtin.pause" in t for t in tasks))
+        self.assertFalse(any("ansible.builtin.debug" in t for t in tasks))
+        self.assertIn("callback_plugins", (ROOT / "ansible.cfg").read_text())
+        self.assertIn("callbacks_enabled", (ROOT / "ansible.cfg").read_text())
         self.assertFalse(any("ansible.builtin.fetch" in t for t in load("roles/pasarguard/tasks/main.yml")))
 
     def test_installer_keeps_api_key_out_of_task_logs(self):

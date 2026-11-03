@@ -112,6 +112,124 @@ Rules:
   Use the read-only `show-pasarguard-certificate.yml` operation to display
   public X.509 PEM, validity dates and fingerprint from the remote source;
   never expose a private key or imply that the operation renews certificates.
+  The PEM must render as separate, copy-ready terminal lines (not JSON-escaped
+  \n) via the isolated public-certificate aggregate callback. All other
+  playbook logs stay unchanged; no private keys or controller copies.
+
+## Purpose
+
+This repository manages production-oriented Ansible infrastructure.
+
+Agents working in this repository must prioritize safety, clarity,
+maintainability, reviewability, and preservation of production behavior unless a
+change is explicitly requested.
+
+## Engineering Principles
+
+- SRP: each Ansible role must have one clear responsibility.
+- SOLID: prefer small, composable, well-scoped units.
+- KISS: avoid unnecessary abstraction and complexity.
+- DRY: shared behavior must be implemented once and reused.
+- Idempotency: converged tasks should report `ok` when no state change is required.
+- Explicit orchestration: playbooks coordinate roles; role logic belongs in roles.
+- Preserve existing behavior unless a change is explicitly requested.
+- Prefer small, reviewable commits over large unrelated refactors.
+- Avoid unrelated cleanup in the same commit.
+
+## Production Safety Rules
+
+These rules are mandatory:
+
+- Never SSH to production infrastructure hosts.
+- Never execute Ansible against production hosts.
+- Never use or request production passwords, API keys, Vault secrets, private keys, or tokens.
+- Never read ignored production inventory or Vault files.
+- Never modify production inventory, Vault data, or credentials.
+- Never modify Git remotes or configure Git credentials.
+- Never force-push.
+- Never merge pull requests.
+- Never delete `main` or `development`.
+- Never rewrite published/shared history.
+- Stop on an unexpected failure and report it.
+
+Production deployment and production validation are performed manually by the operator. Repository validation is enforced by GitHub Actions.
+
+## Branch and Git Workflow
+
+The current branch model is:
+
+```text
+feature/* or fix/*
+        ↓ PR
+development
+        ↓ later promotion PR
+main
+```
+
+Rules:
+
+- Create repository changes from `development` on a feature/fix branch.
+- Do not commit or push directly to `development` or `main`.
+- Feature-branch commits/pushes and opening a PR to `development` are allowed only when the task explicitly requests repository changes.
+- The operator reviews and merges PRs.
+- Do not merge, force-push, delete protected branches, or rebase shared branches.
+- Keep commits focused and use clear commit messages.
+- Before committing, inspect the intended diff and confirm no secrets or production-only files are included.
+
+## Ansible Design Rules
+
+- Every role should have one clear responsibility.
+- Do not create generic catch-all roles when responsibilities can be named explicitly.
+- Keep operational playbooks separate from ordinary desired-state orchestration unless explicitly requested otherwise.
+- Reuse the same role from multiple playbooks instead of duplicating tasks.
+- Preserve existing host targeting and group behavior unless the task explicitly changes it.
+- Prefer built-in Ansible modules over `shell` or `command` when practical.
+- Preserve check-mode behavior where the role supports it.
+- Use `delegate_to`, `run_once`, handlers, tags, and variables intentionally.
+- Avoid hidden side effects.
+- Do not silently change reboot behavior, SSH access, firewall policy, package upgrades, DNS behavior, addressing, or monitoring behavior.
+
+## Current Behavioral Contracts
+
+- `bootstrap.yml` is the initial onboarding workflow.
+  - **Manual** Bootstrap clears all controller-user `known_hosts` entries in its first play, including unrelated hosts. **Automatic** Bootstrap skips this global reset. The current SSH identity risk remains; verify host fingerprints independently.
+  - Its remote roles run in order: `ssh_security`, `cloudflare_dns`, `controller_ssh_config`.
+  - Remote tasks flush SSH handlers, reset the connection, verify bounded SSH reconnection and run `system_update` with reboot-on-required enabled. The completion Marker is written **only after** the OS update and any required reboot succeed.
+  - `speedtest_cli` and `floatip_manager` are intentionally omitted from Bootstrap and are installed only by `site.yml`.
+  - `ansible.cfg` currently sets `host_key_checking = False`. This is a security risk; do not enable host-key checking or change the global wipe behavior without a separately reviewed SSH trust/bootstrap migration.
+- `bootstrap-auto.yml` inspects all inventory hosts without changing inventory groups on disk. Only hosts without a valid Marker or managed hardening **and** with confirmed initial-password SSH access, or key-only SSH access whose configured official Ansible public key is already authorized, may be automatically bootstrapped together in a single unrestricted Ansible
+  batch. Manual `bootstrap.yml` remains sequential by default. Do not add
+  fixed-size `serial` limits to automatic discovery or Bootstrap. Unreachable, ambiguous or partially managed hosts must be skipped and explicitly reported.
+- The completed one-time fleet Marker adoption workflow was retired; do not
+  reintroduce bulk marker writing. Never infer successful Bootstrap from a
+  missing Marker or from a hardening file alone.
+- `site.yml` is the main desired-state workflow.
+  - The all-host play includes SSH/controller config, Cloudflare DNS, hostname, resolver, base packages, Speedtest CLI, FloatIP manager, and monitoring.
+  - PasarGuard-specific roles remain scoped to `pasarguard_nodes`.
+  - The native `port_forward_manager` role is limited to `port_forward_nodes`; it installs the tool and units without activating or modifying live forwarding or legacy state.
+- `floatip_manager` installs only on hosts detected as Hetzner and must not change floating addresses merely by being installed.
+- `optimization` runs only through `playbooks/operations/optimize.yml`; it is not part of `site.yml`.
+  - The default host pattern is `common`.
+  - `optimize_hosts` can explicitly override that pattern.
+  - The repository-owned native role must keep its pre/post network and Docker safety assertions.
+  - Normal converged runs are expected to be idempotent and `--check --diff` must remain non-mutating.
+- `security-updates.yml`, `system-update.yml`, `ping-control.yml`,
+  `optimize.yml`, and `show-pasarguard-certificate.yml` remain
+  independent operational playbooks. Standalone `security.yml` and
+  `port-forward-manager.yml` were retired; their roles still run in `site.yml`.
+  - The two maintenance update playbooks target `all` with `serial: 1`; their APT tasks must use a bounded `lock_timeout` and must not kill package-manager processes or delete lock files.
+  - `system_update` is Debian-family only; unsupported families must fail
+    without making package changes.
+- `security_updates` keeps unattended security installation enabled while automatic reboot remains disabled by default.
+  - `needrestart` may restart ordinary services automatically, but critical network-manager services are excluded by default and deferred to controlled maintenance.
+- The PasarGuard installer command includes a credential and must retain
+  `no_log: true`. Only its credential-bearing task is censored; ordinary
+  diagnostics remain visible. Never copy node certificates to the controller.
+  Use the read-only `show-pasarguard-certificate.yml` operation to display
+  public X.509 PEM, validity dates and fingerprint from the remote source;
+  never expose a private key or imply that the operation renews certificates.
+  The PEM must render as separate, copy-ready terminal lines (not JSON-escaped
+  `\\n`); keep the certificate-view operation read-only and multi-host-safe.
 - The `abuse_firewall_script_path` default is the sole source for the
   deployed script path, scheduled cron job, and initial-update handler.
 - Monitoring target generation remains inventory-driven.

@@ -6,6 +6,13 @@ The project follows Semantic Versioning for published releases.
 
 ## [Unreleased]
 
+### Certificate display
+- Render on-demand PasarGuard X.509 certificates as verbatim, copy-ready,
+  multi-line PEM instead of a JSON debug string containing escaped \n.
+  Use a narrowly scoped aggregate callback rather than an interactive
+  pause or a global stdout format change. Keep remote-only extraction and
+  private-key safety guarantees.
+
 ### Cleanup and operational improvements
 - Retired the completed one-time Bootstrap Marker adoption utility and two
   redundant standalone playbooks (SSH security and Port Forward Manager).

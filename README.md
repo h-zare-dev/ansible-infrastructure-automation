@@ -784,7 +784,13 @@ The default remote path, shared with the PasarGuard role, is
 override it with `-e pasarguard_cert_path=/actual/path/cert.pem`.
 OpenSSL extracts only the public X.509 certificate—even if the input file
 also contains a private key. The operation is read-only and reports expiry
-information; **it does not issue or renew certificates**.
+information; **it does not issue or renew certificates**. The result is
+displayed as a **copy-ready, real multi-line PEM block**: copy the lines
+from `-----BEGIN CERTIFICATE-----` through `-----END CERTIFICATE-----`.
+No \n text or JSON quotes need to be removed. A dedicated aggregate
+callback prints the original public X.509 PEM without altering the default
+Ansible output for other tasks. Multiple nodes each get a separate block,
+with no interactive pauses.
 
 Previous `site.yml` versions may have left stale `*_cert.pem` copies
 under `/opt/pasarguard/certs` on the controller. New runs will not update
