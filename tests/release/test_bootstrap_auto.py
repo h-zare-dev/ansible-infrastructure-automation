@@ -115,7 +115,11 @@ class BootstrapPlaybookContracts(unittest.TestCase):
         self.assertNotIn("serial", site[0])
         self.assertNotIn("forks", read("ansible.cfg"))
 
-        serial = Environment().from_string(bootstrap[1]["serial"])
+        # The bool filter is Ansible-specific, not built into bare Jinja2.
+        # Match Ansible's boolean behavior for these explicit Boolean inputs.
+        env = Environment()
+        env.filters["bool"] = bool
+        serial = env.from_string(bootstrap[1]["serial"])
         self.assertEqual(serial.render().strip(), "1")
         self.assertEqual(serial.render(bootstrap_auto_mode=False).strip(), "1")
         self.assertEqual(serial.render(bootstrap_auto_mode=True).strip(), "100%")
