@@ -9,7 +9,10 @@
 - name: Bootstrap server
   hosts: "{{ bootstrap_host }}"
   become: "{{ ansible_user != 'root' }}"
-  serial: 1
+  # Preserve the traditional one-at-a-time manual Bootstrap. Imported
+  # Auto Bootstrap selects a single, unrestricted batch containing all
+  # verified new hosts; controller SSH config is then written once.
+  serial: "{{ '100%' if (bootstrap_auto_mode | default(false) | bool) else 1 }}"
   vars_files:
     - vars/bootstrap-marker.yml
 
