@@ -81,7 +81,9 @@ Rules:
   - Remote tasks flush SSH handlers, reset the connection, verify bounded SSH reconnection and run `system_update` with reboot-on-required enabled. The completion Marker is written **only after** the OS update and any required reboot succeed.
   - `speedtest_cli` and `floatip_manager` are intentionally omitted from Bootstrap and are installed only by `site.yml`.
   - `ansible.cfg` currently sets `host_key_checking = False`. This is a security risk; do not enable host-key checking or change the global wipe behavior without a separately reviewed SSH trust/bootstrap migration.
-- `bootstrap-auto.yml` inspects all inventory hosts without changing inventory groups on disk. Only hosts without a valid Marker or managed hardening **and** with confirmed initial-password SSH access, or key-only SSH access whose configured official Ansible public key is already authorized, may be automatically bootstrapped (one at a time). Unreachable, ambiguous or partially managed hosts must be skipped and explicitly reported.
+- `bootstrap-auto.yml` inspects all inventory hosts without changing inventory groups on disk. Only hosts without a valid Marker or managed hardening **and** with confirmed initial-password SSH access, or key-only SSH access whose configured official Ansible public key is already authorized, may be automatically bootstrapped together in a single unrestricted Ansible
+  batch. Manual `bootstrap.yml` remains sequential by default. Do not add
+  fixed-size `serial` limits to automatic discovery or Bootstrap. Unreachable, ambiguous or partially managed hosts must be skipped and explicitly reported.
 - `operations/bootstrap-adopt-existing.yml` is one-time key-only adoption: mark only verified hardened servers without password login, updates or service restarts. Never infer complete Bootstrap from a missing Marker.
 - `site.yml` is the main desired-state workflow.
   - The all-host play includes SSH/controller config, Cloudflare DNS, hostname, resolver, base packages, Speedtest CLI, FloatIP manager, and monitoring.

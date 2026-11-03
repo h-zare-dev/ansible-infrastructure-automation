@@ -3,7 +3,8 @@
 - name: Discover bootstrap status on every inventory host
   hosts: all
   gather_facts: false
-  serial: 1
+  # Match site.yml: operate on all inventory hosts in the same Ansible play.
+  # No serial batches; Ansible's existing forks setting controls workers.
   vars_files:
     - vars/bootstrap-marker.yml
   tasks:

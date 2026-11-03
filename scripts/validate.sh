@@ -97,6 +97,28 @@ fi
 rm -f -- "$bootstrap_noop_log"
 
 echo
+echo "==> Verifying two-host automatic discovery runs without serialization"
+# Local CI fixtures only. Exercises multiple managed hosts with no
+# controller SSH changes, provider API calls, or system updates.
+parallel_noop_log="$(mktemp)"
+if ! ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
+  --limit node-01,node-02 -f 5 \
+  -e '{"bootstrap_probe_command": "printf MARKED"}' >"$parallel_noop_log" 2>&1; then
+  cat "$parallel_noop_log"
+  rm -f -- "$parallel_noop_log"
+  exit 1
+fi
+cat "$parallel_noop_log"
+if grep -Eq 'Could not match supplied host pattern|changed=[1-9]|failed=[1-9]|unreachable=[1-9]' "$parallel_noop_log"; then
+  echo "ERROR: two-host Auto Bootstrap no-op modified hosts or showed errors."
+  rm -f -- "$parallel_noop_log"
+  exit 1
+fi
+grep -Fq '"node-01"' "$parallel_noop_log"
+grep -Fq '"node-02"' "$parallel_noop_log"
+rm -f -- "$parallel_noop_log"
+
+echo
 echo "==> Running ansible-lint"
 ansible-lint --offline playbooks roles molecule tests/release
 
