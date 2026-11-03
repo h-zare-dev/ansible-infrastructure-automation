@@ -98,7 +98,8 @@ class BootstrapPlaybookContracts(unittest.TestCase):
         self.assertEqual(auto[1]["ansible.builtin.import_playbook"], "bootstrap.yml")
         self.assertEqual(auto[1]["vars"]["bootstrap_host"], "__bootstrap_auto_pending")
         self.assertTrue(auto[1]["vars"]["bootstrap_auto_mode"])
-        self.assertEqual(auto[2]["hosts"], "localhost")
+        self.assertEqual(auto[2]["hosts"], "all")
+        self.assertTrue(all(t.get("run_once") and t.get("delegate_to") == "localhost" for t in auto[2]["tasks"]))
         self.assertNotIn("bootstrap_candidates", read("inventory/hosts.example.ini"))
 
     def test_only_explicit_fresh_candidates_may_run(self):
