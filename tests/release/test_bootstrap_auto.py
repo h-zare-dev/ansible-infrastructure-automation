@@ -94,7 +94,7 @@ class BootstrapPlaybookContracts(unittest.TestCase):
         auto = load("playbooks/bootstrap-auto.yml")
         self.assertEqual(auto[0]["hosts"], "all")
         self.assertFalse(auto[0]["gather_facts"])
-        self.assertEqual(auto[0]["serial"], 1)
+        self.assertNotIn("serial", auto[0])
         self.assertEqual(auto[1]["ansible.builtin.import_playbook"], "bootstrap.yml")
         self.assertIn("__bootstrap_auto_pending", auto[1]["vars"]["bootstrap_host"])
         self.assertIn("all:!all", auto[1]["vars"]["bootstrap_host"])
@@ -102,6 +102,37 @@ class BootstrapPlaybookContracts(unittest.TestCase):
         self.assertEqual(auto[2]["hosts"], "all")
         self.assertTrue(all(t.get("run_once") and t.get("delegate_to") == "localhost" for t in auto[2]["tasks"]))
         self.assertNotIn("bootstrap_candidates", read("inventory/hosts.example.ini"))
+
+    def test_auto_uses_full_inventory_batch_and_manual_stays_sequential(self):
+        from jinja2 import Environment
+
+        auto = load("playbooks/bootstrap-auto.yml")
+        bootstrap = load("playbooks/bootstrap.yml")
+        site = load("playbooks/site.yml")
+
+        # Match site.yml's no-serial discovery and avoid fixed batch caps.
+        self.assertNotIn("serial", auto[0])
+        self.assertNotIn("serial", site[0])
+        self.assertNotIn("forks", read("ansible.cfg"))
+
+        serial = Environment().from_string(bootstrap[1]["serial"])
+        self.assertEqual(serial.render().strip(), "1")
+        self.assertEqual(serial.render(bootstrap_auto_mode=False).strip(), "1")
+        self.assertEqual(serial.render(bootstrap_auto_mode=True).strip(), "100%")
+
+        # All eligible hosts participate in one serial batch; the SSH config
+        # role remains a single delegated write per batch, not a race.
+        config = load("roles/controller_ssh_config/tasks/main.yml")[0]
+        self.assertTrue(config["run_once"])
+        self.assertEqual(config["delegate_to"], "localhost")
+        self.assertFalse(config["become"])
+
+        # Cloudflare writes remain independently scoped to each host's A record.
+        cloudflare = load("roles/cloudflare_dns/tasks/main.yml")[0][
+            "community.general.cloudflare_dns"
+        ]
+        self.assertIn("inventory_hostname", cloudflare["record"])
+        self.assertTrue(cloudflare["solo"])
 
     def test_empty_candidate_group_uses_safe_noop_host_pattern(self):
         from jinja2 import Environment
@@ -235,7 +266,9 @@ class BootstrapPlaybookContracts(unittest.TestCase):
 
     def test_manual_bootstrap_records_success_only_after_update(self):
         bootstrap = load("playbooks/bootstrap.yml")
-        self.assertEqual(bootstrap[1]["serial"], 1)
+        self.assertIn("bootstrap_auto_mode", bootstrap[1]["serial"])
+        self.assertIn("100%", bootstrap[1]["serial"])
+        self.assertIn("else 1", bootstrap[1]["serial"])
         self.assertIn("bootstrap_auto_mode", bootstrap[0]["roles"][0]["when"])
         tasks = bootstrap[1]["tasks"]
         self.assertEqual(tasks[-2]["ansible.builtin.include_role"]["name"], "system_update")
