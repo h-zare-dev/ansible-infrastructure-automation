@@ -59,7 +59,8 @@ class OperationalFailureContracts(unittest.TestCase):
     def test_bootstrap_reconnect_is_before_last_os_update_and_fails_closed(self):
         bootstrap = load_yaml("playbooks/bootstrap.yml")
         self.assertEqual([p["hosts"] for p in bootstrap], ["{{ bootstrap_host }}"] * 2)
-        self.assertEqual(bootstrap[0]["roles"], ["controller_known_hosts"])
+        self.assertEqual([item["role"] if isinstance(item, dict) else item for item in bootstrap[0]["roles"]], ["controller_known_hosts"])
+        self.assertIn("bootstrap_auto_mode", bootstrap[0]["roles"][0]["when"])
         self.assertEqual(bootstrap[1]["roles"], ["ssh_security", "cloudflare_dns", "controller_ssh_config"])
         steps = bootstrap[1]["tasks"]
         self.assertEqual(steps[0].get("ansible.builtin.meta"), "flush_handlers")
@@ -69,7 +70,9 @@ class OperationalFailureContracts(unittest.TestCase):
         self.assertGreater(wait["connect_timeout"], 0)
         self.assertFalse(steps[2].get("ignore_errors", False))
         self.assertNotIn("failed_when", steps[2])
-        self.assertEqual(steps[-1]["ansible.builtin.include_role"]["name"], "system_update")
+        self.assertEqual(steps[-2]["ansible.builtin.include_role"]["name"], "system_update")
+        self.assertEqual(steps[-1]["ansible.builtin.copy"]["dest"], "{{ bootstrap_marker_path }}")
+        self.assertEqual(steps[-1]["ansible.builtin.copy"]["content"], "{{ bootstrap_marker_content }}")
         self.assertTrue(bootstrap[1]["vars"]["system_update_reboot"])
 
     def test_reboot_requires_positive_bounded_timeouts_and_explicit_flag(self):
@@ -103,10 +106,11 @@ class OperationalFailureContracts(unittest.TestCase):
 
     def test_documentation_matches_current_bootstrap_and_ssh_risk(self):
         agents = load_text("AGENTS.md")
-        self.assertIn("clearing **all entries**", agents)
-        self.assertIn("**last** run `system_update`", agents)
+        self.assertIn("clears all controller-user `known_hosts` entries", agents)
+        self.assertIn("run `system_update`", agents)
+        self.assertIn("Marker is written **only after**", agents)
         self.assertIn("host_key_checking = False", agents)
-        self.assertIn("verify new SSH host keys independently", agents)
+        self.assertIn("verify host fingerprints independently", agents)
         known = load_yaml("roles/controller_known_hosts/tasks/main.yml")
         self.assertEqual(known[0]["delegate_to"], "localhost")
         self.assertTrue(known[0]["run_once"])

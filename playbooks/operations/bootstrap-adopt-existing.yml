@@ -1,0 +1,53 @@
+---
+# One-time transition for previously managed servers. Never uses initial password.
+- name: Adopt already managed inventory hosts without executing Bootstrap
+  hosts: all
+  gather_facts: false
+  serial: 1
+  become: "{{ ansible_user != 'root' }}"
+  vars_files:
+    - ../vars/bootstrap-marker.yml
+  vars:
+    ansible_become_pass: "{{ vault_ansible_become_pass }}"
+  tasks:
+    - name: Probe managed state over SSH key only
+      ansible.builtin.raw: "{{ bootstrap_probe_command }}"
+      become: false
+      vars:
+        ansible_password: ""
+        ansible_ssh_extra_args: >-
+          -o ControlMaster=no -o ControlPath=none -o BatchMode=yes
+          -o PreferredAuthentications=publickey -o PasswordAuthentication=no
+          -o KbdInteractiveAuthentication=no -o ConnectTimeout=8
+      register: bootstrap_adopt_probe
+      changed_when: false
+      failed_when: false
+      ignore_unreachable: true
+      check_mode: false
+      no_log: true
+
+    - name: Parse adoption probe
+      ansible.builtin.set_fact:
+        bootstrap_adopt_status: >-
+          {{ (bootstrap_adopt_probe.stdout_lines | default([]) | last | default('') | trim)
+             if (bootstrap_adopt_probe.rc | default(1) | int == 0) else 'UNREACHABLE' }}
+
+    - name: Write marker only for verified previously hardened hosts
+      ansible.builtin.copy:
+        dest: "{{ bootstrap_marker_path }}"
+        content: "{{ bootstrap_marker_content }}"
+        owner: root
+        group: root
+        mode: "0644"
+      when:
+        - bootstrap_adopt_status == 'HARDENED'
+        - not (bootstrap_adopt_dry_run | bool)
+        - not ansible_check_mode
+
+    - name: Report migration result
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          {{ 'already marked' if bootstrap_adopt_status == 'MARKED'
+             else 'eligible for marker adoption' if bootstrap_adopt_status == 'HARDENED'
+             else 'untouched; inspect state (' ~ bootstrap_adopt_status ~ ')' }}

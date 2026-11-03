@@ -281,6 +281,32 @@ Use the correct connection variables for the environment.
 
 ### Step 2 — Bootstrap the server and controller access
 
+**New: inventory-wide Auto Bootstrap (no new group required).** Add fresh
+servers directly to their existing functional groups in private
+`inventory/hosts.ini`. After one-time Marker adoption on previously
+bootstrapped servers, use a single command to discover and bootstrap only
+positively identified fresh machines:
+
+```bash
+ansible-playbook playbooks/bootstrap-auto.yml
+```
+
+One-time Marker adoption for verified previously managed servers:
+
+```bash
+ansible-playbook playbooks/operations/bootstrap-adopt-existing.yml
+```
+
+Both support read-only previews via `-e bootstrap_auto_discover_only=true`
+and `-e bootstrap_adopt_dry_run=true`, respectively. Optional
+`--limit HOST1,HOST2` restricts canary testing. Unmarked hardened hosts,
+bad markers, and inaccessible hosts are **not** auto-bootstrapped.
+See [Automatic Bootstrap and Marker migration](docs/auto-bootstrap.md)
+for discovery rules, partial-bootstrap recovery and SSH identity risks.
+
+For explicit/manual single-host Bootstrap, run:
+
+
 Run:
 
 ```bash
@@ -298,7 +324,7 @@ The remote bootstrap play uses Vault-provided SSH and privilege-escalation passw
 - `cloudflare_dns` creates or updates the host's Cloudflare A record.
 - `controller_ssh_config` updates all inventory SSH shortcuts on the controller.
 - **Before the final update:** Ansible flushes pending SSH hardening handlers, resets its SSH session and verifies that it can reconnect. This prevents starting a rebooting OS upgrade when hardened SSH access has become unusable.
-- **Last:** `system_update` performs the OS package upgrade and optional reboot, after a BIOS GRUB preflight. If the final step fails, earlier bootstrap actions may already have succeeded, but the play remains failed.
+- **Final operational action:** `system_update` performs the OS package upgrade and optional reboot, after a BIOS GRUB preflight. Only after that succeeds, Bootstrap creates the completion Marker at `/var/lib/ansible-bootstrap-complete`. If it fails, the Marker is not written even if prior actions partially succeeded.
 
 **GRUB safety:** Debian-family systems using BIOS + `grub-pc` are inspected **read-only** before APT changes. Existing valid whole-disk GRUB selections are preserved. An absent or stale target is repaired via Debconf only if the firmware boot disk selection is unambiguous (single disk with a compatible partition layout). UEFI and non-`grub-pc` hosts are left untouched. Multi-disk, unknown or unsupported arrangements fail safely before the upgrade. The role never calls `grub-install` directly or answers "Continue without installing GRUB?" with Yes. Subsequent APT package scripts may install GRUB on the selected disk, so ensure backup and provider recovery console access before upgrading.
 
@@ -407,11 +433,13 @@ Useful when SSH policy needs to be enforced without running unrelated roles.
 
 # Playbook Quick Reference
 
-All eight tracked playbooks and their invocation contracts are summarized below. Host names in examples are inventory aliases, not DNS names.
+All tracked playbooks and their invocation contracts are summarized below. Host names in examples are inventory aliases, not DNS names.
 
 | Playbook | Target | Purpose | Important input |
 | --- | --- | --- | --- |
-| `playbooks/bootstrap.yml` | `bootstrap_host` | First-time onboarding; may reboot | **Required** `-e bootstrap_host=SERVER_NAME` |
+| `playbooks/bootstrap.yml` | `bootstrap_host` | Manual onboarding with completion Marker; may reboot | **Required** `-e bootstrap_host=SERVER_NAME` |
+| `playbooks/bootstrap-auto.yml` | `all` (ephemeral eligible set) | Inventory-wide discovery and automatic onboarding | Optional `-e bootstrap_auto_discover_only=true` |
+| `playbooks/operations/bootstrap-adopt-existing.yml` | `all` | One-time Marker adoption, no Bootstrap | Optional `-e bootstrap_adopt_dry_run=true` |
 | `playbooks/site.yml` | `all`, `pasarguard_nodes`, `port_forward_nodes` | Reconcile the normal desired state | Optional `--limit SERVER_NAME` |
 | `playbooks/security.yml` | `all` | Reapply SSH hardening | Optional `--limit SERVER_NAME` |
 | `playbooks/operations/system-update.yml` | `all` | Rolling full package upgrade, reboot if required | Optional `--limit SERVER_NAME` |

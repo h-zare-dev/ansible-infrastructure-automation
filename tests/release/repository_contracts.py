@@ -66,11 +66,17 @@ assert "speedtest_cli" not in bootstrap_roles
 assert "floatip_manager" not in bootstrap_roles
 assert bootstrap[1]["vars"]["system_update_reboot"] is True
 bootstrap_final_tasks = bootstrap[1]["tasks"]
-assert len(bootstrap_final_tasks) == 4
+assert len(bootstrap_final_tasks) == 5
 assert bootstrap_final_tasks[0]["ansible.builtin.meta"] == "flush_handlers"
 assert bootstrap_final_tasks[1]["ansible.builtin.meta"] == "reset_connection"
 assert "ansible.builtin.wait_for_connection" in bootstrap_final_tasks[2]
-assert bootstrap_final_tasks[-1]["ansible.builtin.include_role"]["name"] == "system_update"
+assert bootstrap_final_tasks[-2]["ansible.builtin.include_role"]["name"] == "system_update"
+marker_task = bootstrap_final_tasks[-1]["ansible.builtin.copy"]
+assert marker_task["dest"] == "{{ bootstrap_marker_path }}"
+assert marker_task["content"] == "{{ bootstrap_marker_content }}"
+assert marker_task["mode"] == "0644"
+assert bootstrap[1]["serial"] == 1
+assert "bootstrap_auto_mode" in bootstrap[0]["roles"][0]["when"]
 
 debian_update = load_yaml("roles/system_update/tasks/debian.yml")
 debian_task_names = [task["name"] for task in debian_update]

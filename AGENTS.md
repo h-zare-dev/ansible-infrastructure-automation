@@ -76,11 +76,13 @@ Rules:
 ## Current Behavioral Contracts
 
 - `bootstrap.yml` is the initial onboarding workflow.
-  - Its first play runs `controller_known_hosts` on localhost before connecting remotely, clearing **all entries** in the controller user's configured `known_hosts` file (not only the selected target). This removes trust records for unrelated hosts too; verify new SSH host keys independently.
+  - **Manual** Bootstrap clears all controller-user `known_hosts` entries in its first play, including unrelated hosts. **Automatic** Bootstrap skips this global reset. The current SSH identity risk remains; verify host fingerprints independently.
   - Its remote roles run in order: `ssh_security`, `cloudflare_dns`, `controller_ssh_config`.
-  - The remote tasks flush SSH handlers, reset the SSH connection, require a successful bounded `wait_for_connection` check, and **last** run `system_update` with reboot-on-required enabled.
+  - Remote tasks flush SSH handlers, reset the connection, verify bounded SSH reconnection and run `system_update` with reboot-on-required enabled. The completion Marker is written **only after** the OS update and any required reboot succeed.
   - `speedtest_cli` and `floatip_manager` are intentionally omitted from Bootstrap and are installed only by `site.yml`.
   - `ansible.cfg` currently sets `host_key_checking = False`. This is a security risk; do not enable host-key checking or change the global wipe behavior without a separately reviewed SSH trust/bootstrap migration.
+- `bootstrap-auto.yml` inspects all inventory hosts without changing inventory groups on disk. Only hosts without a valid Marker or managed hardening **and** with confirmed initial-password SSH access may be automatically bootstrapped (one at a time). Unreachable, ambiguous or partially managed hosts must be skipped and explicitly reported.
+- `operations/bootstrap-adopt-existing.yml` is one-time key-only adoption: mark only verified hardened servers without password login, updates or service restarts. Never infer complete Bootstrap from a missing Marker.
 - `site.yml` is the main desired-state workflow.
   - The all-host play includes SSH/controller config, Cloudflare DNS, hostname, resolver, base packages, Speedtest CLI, FloatIP manager, and monitoring.
   - PasarGuard-specific roles remain scoped to `pasarguard_nodes`.
@@ -129,6 +131,7 @@ The CI workflow installs its own pinned validation toolchain, uses only sanitize
 - Upstream FloatIP and native Port Forward Manager releases currently publish no checksum/signature assets. GitHub Release tag validation, HTTPS downloads, and syntax checks are **not** independent artifact authenticity verification. Do not claim checksum enforcement exists until a trusted release manifest/signature and verification mechanism are implemented.
 - CI fault contracts check bounded APT-lock waits, SSH reconnection and reboot timeout policies, and fail-closed release metadata handling. They are not a substitute for live fault injection against real servers.
 - Follow the test scope and remaining gaps in `docs/operational-hardening.md`.
+- For automatic Bootstrap and one-time Marker adoption use `docs/auto-bootstrap.md`. Never auto-run Bootstrap just because a file is missing.
 
 ## Change Workflow
 
