@@ -124,7 +124,13 @@
 - name: Reuse manual Bootstrap on selected fresh hosts
   ansible.builtin.import_playbook: bootstrap.yml
   vars:
-    bootstrap_host: __bootstrap_auto_pending
+    # When discovery finds no new hosts, avoid referring to a nonexistent
+    # runtime group. The valid empty intersection keeps all SSH/OS roles
+    # skipped without hiding real inventory host-pattern warnings.
+    bootstrap_host: >-
+      {{ '__bootstrap_auto_pending'
+         if (groups.get('__bootstrap_auto_pending', []) | length > 0)
+         else 'all:!all' }}
     bootstrap_auto_mode: true
 
 - name: Report discovery issues after the selected hosts finish
