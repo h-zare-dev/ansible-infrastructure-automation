@@ -81,8 +81,8 @@ classification is displayed.
 | Hardening present but unexpected | Skip and report `review_hardening` |
 | Marker incomplete, invalid, or a symlink | Skip and report `invalid_marker` |
 | No marker and no hardening; **initial password login works** | Bootstrap as `candidate` |
-| Key works, no marker/hardening, password fails, and official Ansible public key is already authorized | Bootstrap as `candidate_key` over SSH Key |
-| Key works, no marker/hardening, password fails, but official Ansible public key cannot be confirmed | Skip as `key_only_unmanaged` for review |
+| Key works, no marker/hardening, and the official Ansible public key is already authorized | Bootstrap as `candidate_key` over SSH Key (no password probe) |
+| Key works, no marker/hardening, but official Ansible public key cannot be confirmed | Skip as `key_only_unmanaged` for review |
 | Neither probe works | Skip as `unreachable` |
 
 The one-time adoption playbook connects only via SSH **public key** and
