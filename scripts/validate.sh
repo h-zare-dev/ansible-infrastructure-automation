@@ -60,12 +60,17 @@ python3 -m unittest discover -s tests/release -p 'test_bootstrap_auto.py' -v
 
 echo
 echo "==> Running isolated read-only Bootstrap previews against CI fixtures"
+# Keep the CI fixture independent of the production controller's real SSH key.
+# The marker probe runs locally; the fixture key is never a usable credential.
+bootstrap_fixture_pubkey="$inventory_dir/bootstrap-fixture.pub"
+printf 'ssh-ed25519 %s bootstrap-ci-fixture\n' 'dGVzdGZpeHR1cmU=' > "$bootstrap_fixture_pubkey"
 ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
   --limit node-01 \
   -e '{"bootstrap_auto_discover_only": true, "bootstrap_probe_command": "printf MARKED"}'
 ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
   --limit node-01 \
-  -e '{"bootstrap_auto_discover_only": true, "bootstrap_probe_command": "printf NEW"}'
+  -e '{"bootstrap_auto_discover_only": true, "bootstrap_probe_command": "printf NEW"}' \
+  -e "vault_ssh_public_key_path=$bootstrap_fixture_pubkey"
 ansible-playbook -i "$INVENTORY" -c local playbooks/operations/bootstrap-adopt-existing.yml \
   --limit node-01 \
   -e '{"bootstrap_adopt_dry_run": true, "bootstrap_probe_command": "printf HARDENED"}'
