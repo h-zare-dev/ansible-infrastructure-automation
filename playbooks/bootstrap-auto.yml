@@ -82,7 +82,8 @@
         - not (bootstrap_auto_discover_only | bool)
 
 # Reuse the manually tested Bootstrap workflow without repeating its roles.
-- ansible.builtin.import_playbook: bootstrap.yml
+- name: Reuse manual Bootstrap on selected fresh hosts
+  ansible.builtin.import_playbook: bootstrap.yml
   vars:
     bootstrap_host: __bootstrap_auto_pending
     bootstrap_auto_mode: true
@@ -93,7 +94,7 @@
   vars_files:
     - vars/bootstrap-marker.yml
   tasks:
-    - name: Show host classifications
+    - name: Show host classifications  # noqa: run-once[task]
       delegate_to: localhost
       become: false
       run_once: true
@@ -109,7 +110,7 @@
           unreachable: "{{ groups.get('__bootstrap_auto_status_unreachable', []) | sort }}"
           discovery_only: "{{ bootstrap_auto_discover_only | bool }}"
 
-    - name: Fail rather than silently accept unresolved inventory hosts
+    - name: Fail rather than silently accept unresolved inventory hosts  # noqa: run-once[task]
       delegate_to: localhost
       become: false
       run_once: true
