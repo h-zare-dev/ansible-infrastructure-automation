@@ -80,6 +80,32 @@ assert "100%" in bootstrap[1]["serial"]
 assert "else 1" in bootstrap[1]["serial"]
 assert "bootstrap_auto_mode" in bootstrap[0]["roles"][0]["when"]
 
+# A one-off marker migration is retired after fleet adoption. The persistent
+# marker and its safe probe remain part of ordinary automatic onboarding.
+assert not (ROOT / "playbooks/operations/bootstrap-adopt-existing.yml").exists()
+assert not (ROOT / "playbooks/security.yml").exists()
+assert not (ROOT / "playbooks/operations/port-forward-manager.yml").exists()
+assert not (ROOT / "docs/refactor-plan.md").exists()
+
+# System maintenance is Debian-family only. Do not silently reintroduce dnf
+# or a non-tested RedHat package upgrade path.
+system_update_main = load_yaml("roles/system_update/tasks/main.yml")
+assert "ansible_facts.os_family == 'Debian'" in system_update_main[0]["ansible.builtin.assert"]["that"]
+assert all(
+    "redhat.yml" not in str(task)
+    for task in system_update_main
+)
+assert not (ROOT / "roles/system_update/tasks/redhat.yml").exists()
+
+# Keep the actual PasarGuard installer output secret (it contains --api-key),
+# while ordinary tasks remain observable. Never fetch certificates to the
+# controller as part of a site run.
+pasarguard_tasks = load_yaml("roles/pasarguard/tasks/main.yml")
+assert pasarguard_tasks[0]["no_log"] is True
+assert not any("ansible.builtin.fetch" in task for task in pasarguard_tasks)
+assert not any("pasarguard_cert_destination_dir" in str(task) for task in pasarguard_tasks)
+
+
 debian_update = load_yaml("roles/system_update/tasks/debian.yml")
 debian_task_names = [task["name"] for task in debian_update]
 assert debian_task_names.index("Correct verified BIOS GRUB debconf target") < (

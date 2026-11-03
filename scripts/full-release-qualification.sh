@@ -25,6 +25,10 @@ echo "==> Automatic Bootstrap marker and discovery contracts"
 python3 -m unittest discover -s tests/release -p 'test_bootstrap_auto.py' -v
 
 echo
+echo "==> PasarGuard public-certificate and installer-secret contracts"
+python3 -m unittest discover -s tests/release -p 'test_pasarguard_certificate.py' -v
+
+echo
 echo "==> Optimization capacity contracts"
 ansible-playbook -i localhost, tests/release/optimization_contract.yml
 
