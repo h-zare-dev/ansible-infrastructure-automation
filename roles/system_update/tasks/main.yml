@@ -2,18 +2,14 @@
 - name: Validate supported system update platform
   ansible.builtin.assert:
     that:
-      - ansible_facts.os_family in ['Debian', 'RedHat']
+      - ansible_facts.os_family == 'Debian'
     fail_msg: >-
-      system_update currently supports Debian-family and RedHat-family systems;
+      system_update supports Debian-family hosts only;
       detected {{ ansible_facts.distribution }} ({{ ansible_facts.os_family }}).
 
 - name: Update Debian-family system
   ansible.builtin.include_tasks: debian.yml
   when: ansible_facts.os_family == 'Debian'
-
-- name: Update RedHat-family system
-  ansible.builtin.include_tasks: redhat.yml
-  when: ansible_facts.os_family == 'RedHat'
 
 - name: Reboot updated system when required
   ansible.builtin.reboot:

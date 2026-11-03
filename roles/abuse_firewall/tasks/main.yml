@@ -17,7 +17,7 @@
 - name: Deploy Abuse-Defender update script via Jinja2 template
   ansible.builtin.template:
     src: abuse-update.sh.j2
-    dest: /root/abuse-defender-update.sh
+    dest: "{{ abuse_firewall_script_path }}"
     mode: '0755'
     owner: root
     group: root
@@ -28,5 +28,5 @@
     name: "Abuse-Defender Auto Update"
     minute: "0"
     hour: "0"
-    job: "/root/abuse-defender-update.sh"
+    job: "{{ abuse_firewall_script_path }}"
     state: present
