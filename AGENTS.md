@@ -112,6 +112,8 @@ Rules:
   Use the read-only `show-pasarguard-certificate.yml` operation to display
   public X.509 PEM, validity dates and fingerprint from the remote source;
   never expose a private key or imply that the operation renews certificates.
+  The PEM must render as separate, copy-ready terminal lines (not JSON-escaped
+  `\\n`); keep the certificate-view operation read-only and multi-host-safe.
 - The `abuse_firewall_script_path` default is the sole source for the
   deployed script path, scheduled cron job, and initial-update handler.
 - Monitoring target generation remains inventory-driven.
