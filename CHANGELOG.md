@@ -6,6 +6,13 @@ The project follows Semantic Versioning for published releases.
 
 ## [Unreleased]
 
+### Auto Bootstrap output
+- Show neutral fallback messages for optional SSH key, password and key
+  verification probes that cannot connect; suppress the misleading red
+  UNREACHABLE/ignored noise for those probes only.
+- Keep real Bootstrap failures, final discovery assertions, and the ordinary
+  stdout output visible through an extension of Ansible's default callback.
+
 ### Certificate display
 - Render on-demand PasarGuard X.509 certificates as verbatim, copy-ready,
   multi-line PEM instead of a JSON debug string containing escaped \n.
