@@ -48,7 +48,8 @@ class CallbackModule(DefaultCallback):
         # Temporary CI-only diagnostics to identify runtime task attributes;
         # no credentials, hosts or raw SSH errors are printed.
         import os
-        if os.getenv("CI") == "true" and expected is not None:
+        if (os.getenv("CI") == "true" and expected is not None
+                and getattr(task, "_uuid", None) is not None):
             self._display.display(
                 "CI-PROBE-CALLBACK: action=%r register=%r no_log=%r ignored=%r"
                 % (
