@@ -37,6 +37,17 @@ _PROBES = {
 }
 
 
+def _matches_register(actual, expected):
+    # In ansible-core 2.21, Task.register is a mapping such as
+    # {"bootstrap_auto_key_probe": "_task.polymorphic_result"}.
+    # Older releases used a bare variable name.
+    return (
+        actual == expected
+        if isinstance(actual, str)
+        else isinstance(actual, dict) and set(actual) == {expected}
+    )
+
+
 class CallbackModule(DefaultCallback):
     CALLBACK_VERSION = 2.0
     CALLBACK_TYPE = "stdout"
@@ -45,23 +56,9 @@ class CallbackModule(DefaultCallback):
     def v2_runner_on_unreachable(self, result):
         task = result._task
         expected = _PROBES.get(task.get_name())
-        # Temporary CI-only diagnostics to identify runtime task attributes;
-        # no credentials, hosts or raw SSH errors are printed.
-        import os
-        if (os.getenv("CI") == "true" and expected is not None
-                and getattr(task, "_uuid", None) is not None):
-            self._display.display(
-                "CI-PROBE-CALLBACK: action=%r register=%r no_log=%r ignored=%r"
-                % (
-                    getattr(task, "action", None),
-                    getattr(task, "register", None),
-                    getattr(task, "no_log", None),
-                    getattr(task, "ignore_unreachable", None),
-                ),
-            )
         if (
             expected is not None
-            and getattr(task, "register", None) == expected[0]
+            and _matches_register(getattr(task, "register", None), expected[0])
             and getattr(task, "action", None) in ("raw", "ansible.builtin.raw")
             and getattr(task, "no_log", False) is True
             and getattr(task, "ignore_unreachable", False) is True

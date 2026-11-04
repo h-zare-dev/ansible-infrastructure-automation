@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from ansible.plugins.callback.default import CallbackModule as DefaultCallback
-from callback_plugins.quiet_bootstrap_auth import CallbackModule, _PROBES
+from callback_plugins.quiet_bootstrap_auth import CallbackModule, _PROBES, _matches_register
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -36,7 +36,10 @@ class QuietBootstrapProbeTests(unittest.TestCase):
             for name, (register, message) in _PROBES.items():
                 with self.subTest(name=name):
                     self.display.reset_mock()
-                    self.callback.v2_runner_on_unreachable(event(name, register))
+                    # Match the register representation emitted by Ansible 2.21.
+                    self.callback.v2_runner_on_unreachable(
+                        event(name, {register: "_task.polymorphic_result"})
+                    )
                     printed = self.display.display.call_args.args[0]
                     self.assertIn("Yotta-TR", printed)
                     self.assertIn(message, printed)
@@ -44,6 +47,23 @@ class QuietBootstrapProbeTests(unittest.TestCase):
                     self.assertNotIn("UNREACHABLE!", printed)
                     self.assertNotIn("fatal:", printed)
             parent.assert_not_called()
+
+    def test_register_matches_both_new_and_legacy_ansible_versions(self):
+        self.assertTrue(_matches_register(
+            {"bootstrap_auto_key_probe": "_task.polymorphic_result"},
+            "bootstrap_auto_key_probe",
+        ))
+        self.assertTrue(_matches_register(
+            "bootstrap_auto_key_probe", "bootstrap_auto_key_probe"
+        ))
+        self.assertFalse(_matches_register(
+            {"different_result": "_task.polymorphic_result"},
+            "bootstrap_auto_key_probe",
+        ))
+        self.assertFalse(_matches_register(
+            {"bootstrap_auto_key_probe": "x", "other": "y"},
+            "bootstrap_auto_key_probe",
+        ))
 
     def test_non_optional_and_unsafe_failure_states_use_normal_callback(self):
         name, (register, _) = next(iter(_PROBES.items()))
