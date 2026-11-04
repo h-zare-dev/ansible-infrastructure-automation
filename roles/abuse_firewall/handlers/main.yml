@@ -1,3 +1,6 @@
 ---
 - name: Run initial firewall update
-  ansible.builtin.shell: /root/abuse-defender-update.sh
+  ansible.builtin.command:
+    argv:
+      - "{{ abuse_firewall_script_path }}"
+  changed_when: true

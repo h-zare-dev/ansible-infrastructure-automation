@@ -3,14 +3,29 @@
   hosts: "{{ bootstrap_host }}"
   gather_facts: false
   roles:
-    - controller_known_hosts
+    - role: controller_known_hosts
+      when: not (bootstrap_auto_mode | default(false) | bool)
 
 - name: Bootstrap server
   hosts: "{{ bootstrap_host }}"
   become: "{{ ansible_user != 'root' }}"
+  # Preserve the traditional one-at-a-time manual Bootstrap. Imported
+  # Auto Bootstrap selects a single, unrestricted batch containing all
+  # verified new hosts; controller SSH config is then written once.
+  serial: "{{ '100%' if (bootstrap_auto_mode | default(false) | bool) else 1 }}"
+  vars_files:
+    - vars/bootstrap-marker.yml
 
   vars:
-    ansible_password: "{{ vault_ansible_password }}"
+    # A verified key-only auto-candidate must not receive the Vault login password.
+    # Existing password-based and manual Bootstrap remain unchanged.
+    ansible_password: >-
+      {{
+        none
+        if (bootstrap_auto_mode | default(false) | bool)
+        and (bootstrap_auto_auth_method | default('password')) == 'key'
+        else vault_ansible_password
+      }}
     ansible_become_pass: "{{ vault_ansible_become_pass }}"
     system_update_reboot: true
 
@@ -35,6 +50,15 @@
         sleep: 2
         timeout: 120
 
-    - name: Perform system update as final bootstrap step
+    - name: Perform system update as final bootstrap operation
       ansible.builtin.include_role:
         name: system_update
+
+    - name: Record completion after OS update and any required reboot
+      ansible.builtin.copy:
+        dest: "{{ bootstrap_marker_path }}"
+        content: "{{ bootstrap_marker_content }}"
+        owner: root
+        group: root
+        mode: "0644"
+      when: not ansible_check_mode

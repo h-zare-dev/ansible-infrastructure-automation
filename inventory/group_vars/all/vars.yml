@@ -4,7 +4,6 @@ domain_suffix: "{{ vault_domain_suffix }}"
 
 # Controller output paths
 monitoring_targets_dir: "/opt/monitoring/targets"
-pasarguard_cert_destination_dir: "/opt/pasarguard/certs"
 
 # Default SSH connection profile
 ansible_user: root

@@ -10,7 +10,6 @@
     controller_known_hosts_path: /tmp/ansible-release-controller/ssh/known_hosts
     controller_ssh_config_path: /tmp/ansible-release-controller/ssh/config
     monitoring_targets_dir: /tmp/ansible-release-controller/targets
-    pasarguard_cert_destination_dir: /tmp/ansible-release-controller/certs
 
     ssh_security_public_key_path: "{{ playbook_dir }}/../../tests/fixtures/ci_ed25519.pub"
 

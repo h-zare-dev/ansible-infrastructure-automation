@@ -1,0 +1,31 @@
+---
+bootstrap_marker_path: /var/lib/ansible-bootstrap-complete
+bootstrap_marker_content: "completed\n"
+bootstrap_hardening_path: /etc/ssh/sshd_config.d/00-security-hardening.conf
+bootstrap_auto_discover_only: false
+
+# Read-only POSIX shell probe, safe on machines without Python.
+# Paths are shared with marker writes and SSH hardening checks; do not
+# duplicate literal paths inside the shell script.
+bootstrap_probe_command: |
+  marker={{ bootstrap_marker_path | quote }}
+  hardening={{ bootstrap_hardening_path | quote }}
+  if [ -e "$marker" ] || [ -L "$marker" ]; then
+    if [ ! -L "$marker" ] &&
+       [ -f "$marker" ] &&
+       [ "$(cat "$marker" 2>/dev/null)" = completed ]; then
+      printf '%s\n' MARKED
+    else
+      printf '%s\n' INVALID
+    fi
+  elif [ -e "$hardening" ] || [ -L "$hardening" ]; then
+    if [ -f "$hardening" ] &&
+       grep -Eq '^[[:space:]]*PasswordAuthentication[[:space:]]+no[[:space:]]*$' "$hardening" &&
+       grep -Eq '^[[:space:]]*PubkeyAuthentication[[:space:]]+yes[[:space:]]*$' "$hardening"; then
+      printf '%s\n' HARDENED
+    else
+      printf '%s\n' HARDENING_UNKNOWN
+    fi
+  else
+    printf '%s\n' NEW
+  fi

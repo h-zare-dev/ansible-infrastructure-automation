@@ -38,20 +38,24 @@
 
 - name: Update APT package cache
   ansible.builtin.apt:
+    lock_timeout: 300
     update_cache: true
     cache_valid_time: 3600
 
 - name: Upgrade installed packages
   ansible.builtin.apt:
+    lock_timeout: 300
     upgrade: dist
 
 - name: Remove unused dependencies
   ansible.builtin.apt:
+    lock_timeout: 300
     autoremove: true
     purge: true
 
 - name: Clean obsolete package files
   ansible.builtin.apt:
+    lock_timeout: 300
     autoclean: true
 
 - name: Check whether reboot is required

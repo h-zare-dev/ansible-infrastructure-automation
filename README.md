@@ -57,7 +57,9 @@ ansible-infrastructure-automation/
 ├── requirements.yml
 ├── docs/
 │   ├── native-vpn-optimization.md
-│   └── refactor-plan.md
+│   ├── auto-bootstrap.md
+│   ├── operational-hardening.md
+│   └── native-vpn-optimization.md
 ├── inventory/
 │   ├── hosts.example.ini
 │   └── group_vars/
@@ -67,12 +69,12 @@ ansible-infrastructure-automation/
 │       └── ssh_ubuntu.yml
 ├── playbooks/
 │   ├── bootstrap.yml
-│   ├── security.yml
+│   ├── bootstrap-auto.yml
 │   ├── site.yml
 │   └── operations/
 │       ├── optimize.yml
 │       ├── ping-control.yml
-│       ├── port-forward-manager.yml
+│       ├── show-pasarguard-certificate.yml
 │       ├── security-updates.yml
 │       └── system-update.yml
 ├── .github/workflows/
@@ -152,15 +154,15 @@ forward-tr01
 ```
 
 The role is included in the third play of `playbooks/site.yml` for group
-members. For an isolated install/update without running other roles, use:
+members. Run the normal desired-state deployment to install or update it:
 
 ```bash
-# Entire forwarding group
-ansible-playbook playbooks/operations/port-forward-manager.yml
-
-# One member of the group
-ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
+ansible-playbook playbooks/site.yml --limit Test-DE
 ```
+
+This runs all applicable `site.yml` roles for the selected host, not just
+Port Forward Manager. The redundant standalone Port Forward Manager playbook
+was retired; the role is still active.
 
 **Installation and updates do not activate forwarding.** Ansible fetches the latest stable release on every run, creates
 `rules.db` only if absent, preserves existing rules and state, installs
@@ -219,13 +221,13 @@ disabled until the cutover has been verified.
 ### Verifying Ansible installation and idempotency
 
 ```bash
-ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
-ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
+ansible-playbook playbooks/site.yml --limit Test-DE
+ansible-playbook playbooks/site.yml --limit Test-DE
 ```
 
 The second run should report `changed=0` if the latest Release, files, and packages
 remain unchanged. When a new stable Release is published, the next normal
-`site.yml` or standalone port-forward-manager playbook run downloads its
+`site.yml` run downloads its
 native artifacts on all targeted hosts. This upgrades the files **without**
 restarting running units, reapplying kernel rules, or guaranteeing that the
 new binary has taken effect for an already active service/timer. Check
@@ -247,7 +249,7 @@ Port Forward Manager remains independent of `floatip-manager`.
 
 A newly created server may initially allow only password-based SSH access.
 
-In that state, `site.yml` cannot be expected to work immediately because normal Ansible access is configured for key-based authentication.
+In that state, `site.yml` cannot be expected to work immediately because normal Ansible access is configured for key-based authentication. Existing managed hosts already have completion markers from the finished one-time migration.
 
 The correct onboarding sequence is:
 
@@ -281,7 +283,31 @@ Use the correct connection variables for the environment.
 
 ### Step 2 — Bootstrap the server and controller access
 
-Run:
+**New: inventory-wide Auto Bootstrap (no new group required).** Add fresh
+servers directly to their existing functional groups in private
+`inventory/hosts.ini`. Previously managed servers have already been marked;
+use a single command to discover and bootstrap only
+positively identified fresh machines, including preauthorized SSH-key-only hosts whose official Ansible public key matches their authorized key:
+
+```bash
+ansible-playbook playbooks/bootstrap-auto.yml
+```
+
+Auto Bootstrap discovers and bootstraps **all eligible new hosts together**
+(no fixed serial batch cap), like `site.yml`. Standard Ansible `forks`
+still controls task workers; use `-f 20` to request more concurrent workers
+when needed. Manual `bootstrap.yml` remains sequential.
+See [Auto Bootstrap details](docs/auto-bootstrap.md#how-discovery-works).
+
+Use `-e bootstrap_auto_discover_only=true` for a read-only preview;
+`--limit HOST1,HOST2` restricts canary testing. Unmarked hardened hosts,
+bad markers, and inaccessible hosts are **not** auto-bootstrapped.
+The one-time Marker adoption utility was retired after the existing fleet
+migration; an interrupted/partial Bootstrap requires explicit operator recovery.
+See [Automatic Bootstrap](docs/auto-bootstrap.md) for failure handling
+and SSH identity risks.
+
+For explicit/manual single-host Bootstrap, run:
 
 ```bash
 ansible-playbook playbooks/bootstrap.yml \
@@ -298,7 +324,7 @@ The remote bootstrap play uses Vault-provided SSH and privilege-escalation passw
 - `cloudflare_dns` creates or updates the host's Cloudflare A record.
 - `controller_ssh_config` updates all inventory SSH shortcuts on the controller.
 - **Before the final update:** Ansible flushes pending SSH hardening handlers, resets its SSH session and verifies that it can reconnect. This prevents starting a rebooting OS upgrade when hardened SSH access has become unusable.
-- **Last:** `system_update` performs the OS package upgrade and optional reboot, after a BIOS GRUB preflight. If the final step fails, earlier bootstrap actions may already have succeeded, but the play remains failed.
+- **Final operational action:** `system_update` performs the OS package upgrade and optional reboot, after a BIOS GRUB preflight. Only after that succeeds, Bootstrap creates the completion Marker at `/var/lib/ansible-bootstrap-complete`. If it fails, the Marker is not written even if prior actions partially succeeded.
 
 **GRUB safety:** Debian-family systems using BIOS + `grub-pc` are inspected **read-only** before APT changes. Existing valid whole-disk GRUB selections are preserved. An absent or stale target is repaired via Debconf only if the firmware boot disk selection is unambiguous (single disk with a compatible partition layout). UEFI and non-`grub-pc` hosts are left untouched. Multi-disk, unknown or unsupported arrangements fail safely before the upgrade. The role never calls `grub-install` directly or answers "Continue without installing GRUB?" with Yes. Subsequent APT package scripts may install GRUB on the selected disk, so ensure backup and provider recovery console access before upgrading.
 
@@ -390,76 +416,62 @@ ansible-playbook playbooks/bootstrap.yml \
 
 Use this before `site.yml` when the server does not yet accept the managed SSH key.
 
-## `security.yml`
-
-Re-applies SSH hardening independently from the full deployment to all inventory hosts by default.
-
-```bash
-ansible-playbook playbooks/security.yml
-
-# Target one inventory host
-ansible-playbook playbooks/security.yml --limit SERVER_NAME
-```
-
-Useful when SSH policy needs to be enforced without running unrelated roles.
+---
 
 ---
 
 # Playbook Quick Reference
 
-All eight tracked playbooks and their invocation contracts are summarized below. Host names in examples are inventory aliases, not DNS names.
+All tracked playbooks and their invocation contracts are summarized below. Host names in examples are inventory aliases, not DNS names.
 
 | Playbook | Target | Purpose | Important input |
 | --- | --- | --- | --- |
-| `playbooks/bootstrap.yml` | `bootstrap_host` | First-time onboarding; may reboot | **Required** `-e bootstrap_host=SERVER_NAME` |
+| `playbooks/bootstrap.yml` | `bootstrap_host` | Manual onboarding with completion Marker; may reboot | **Required** `-e bootstrap_host=SERVER_NAME` |
+| `playbooks/bootstrap-auto.yml` | `all` (ephemeral eligible set) | Inventory-wide discovery and automatic onboarding | Optional `-e bootstrap_auto_discover_only=true` |
 | `playbooks/site.yml` | `all`, `pasarguard_nodes`, `port_forward_nodes` | Reconcile the normal desired state | Optional `--limit SERVER_NAME` |
-| `playbooks/security.yml` | `all` | Reapply SSH hardening | Optional `--limit SERVER_NAME` |
 | `playbooks/operations/system-update.yml` | `all` | Rolling full package upgrade, reboot if required | Optional `--limit SERVER_NAME` |
 | `playbooks/operations/security-updates.yml` | `all` | Configure unattended security updates | Optional `--limit SERVER_NAME` |
 | `playbooks/operations/optimize.yml` | `common` by default | Explicit host network optimization | `-e optimize_hosts=GROUP_OR_HOST`; check-mode `--check --diff` |
 | `playbooks/operations/ping-control.yml` | `all` | Control IPv4 Ping replies | **Explicitly specify** `-e ping_action=block` or `allow` |
-| `playbooks/operations/port-forward-manager.yml` | `port_forward_nodes` | Install/maintain forwarding utility only | Optional `--limit SERVER_NAME` |
+| `playbooks/operations/show-pasarguard-certificate.yml` | `pasarguard_nodes` | Display X.509 certificate and validity directly from a node | `--limit SERVER_NAME` |
 
-`--limit` narrows the eligible play hosts; it never adds a host to a group it is not already in. In particular, `--limit SERVER_NAME` cannot make a host outside `port_forward_nodes` eligible for the standalone forwarding play. Production inventory remains private.
+`--limit` narrows eligible hosts; it does not add a server to a functional group.
+The forwarding tool continues to be managed by the `port_forward_manager`
+role inside `site.yml` on `port_forward_nodes`. Production inventory remains private.
 
 ---
 
 # Operational Playbooks
 
-System upgrades, security-update policy, ping control, optimization, and targeted Port Forward Manager maintenance have standalone operational entry points. Port Forward Manager is also installed by `site.yml` for members of its group.
+System upgrades, security-update policy, ping control, optimization and read-only
+PasarGuard certificate inspection have standalone operational entry points.
+Port Forward Manager and SSH security are managed by `site.yml`.
 
 ```text
 playbooks/operations/
 ├── optimize.yml
 ├── ping-control.yml
-├── port-forward-manager.yml
+├── show-pasarguard-certificate.yml
 ├── security-updates.yml
 └── system-update.yml
 ```
 
 Keeping these operations separate avoids adding them to ordinary configuration runs.
 
-## Port Forward Manager — Standalone Installation and Maintenance
-
-`playbooks/operations/port-forward-manager.yml` targets `port_forward_nodes` and runs only the existing `port_forward_manager` role, without the unrelated roles from `site.yml`.
-
-```bash
-# All forwarding hosts
-ansible-playbook playbooks/operations/port-forward-manager.yml
-
-# A single forwarding host (must belong to port_forward_nodes)
-ansible-playbook playbooks/operations/port-forward-manager.yml --limit Test-DE
-```
-
-It installs the pinned native `portfw-nft` CLI, its rule-restore service, and its DNS refresh service/timer. Existing `rules.db`, legacy CLI/service and live forwarding are preserved. Ansible never installs migration tooling or legacy executables and never changes activation state or applies/reloads rules. The upstream native CLI enables boot persistence after the first successful Add; starting with v2.1.0, domain Add/Edit can also enable its DNS scheduler automatically.
-
-Removing a host from the group does not uninstall the tool or remove existing rules. For the group definition and use of `portfw-nft`, see [Port Forward Manager host group](#port-forward-manager-host-group--native-nftables-v2).
+Port Forward Manager installation and upgrades occur in the
+`port_forward_manager` role of `site.yml` on `port_forward_nodes`. For
+a single forwarding host run `ansible-playbook playbooks/site.yml --limit HOST`.
+That runs the other applicable site roles too, while preserving existing
+forwarding rules and activation state.
 
 ## Controlled System Updates
 
-`playbooks/operations/system-update.yml` performs controlled package maintenance on all inventory hosts (`all`). The underlying `system_update` role supports Debian-family and RedHat-family hosts.
+`playbooks/operations/system-update.yml` performs controlled package maintenance on all inventory hosts (`all`). The underlying `system_update` role supports Debian-family hosts only.
 
-On Debian-family hosts it refreshes APT metadata, performs a distribution upgrade, removes unused dependencies, cleans obsolete package files, and checks `/var/run/reboot-required`. On RedHat-family hosts it updates installed packages through `dnf` and uses `needs-restarting -r` when available to determine reboot need. In both cases the operational playbook reboots only when the role reports that a reboot is required.
+It refreshes APT metadata, performs a distribution upgrade, removes unused
+dependencies, cleans obsolete package files, and checks
+`/var/run/reboot-required`. Reboot occurs only when the role reports it is
+required. Unsupported OS families fail explicitly before package changes.
 
 The playbook uses:
 
@@ -753,13 +765,38 @@ The workflow includes:
 - SAN/certificate configuration
 - service protocol enforcement
 - service restart when configuration changes
-- SSL certificate retrieval to the controller
+- certificate generation and storage on the node by its upstream installer (not fetched to the controller)
 
-The controller-side certificate destination is configured independently through `pasarguard_cert_destination_dir` in normal group vars (default: `/opt/pasarguard/certs`). Certificates do not need to be stored under `/opt/monitoring`.
+The installer task includes an API key, so only that task uses `no_log: true`
+to protect its command and output. Normal installation/configuration tasks
+remain visible, and state checks prevent repeated installation.
 
-The installation task uses Ansible state checks to avoid unnecessary repeated installations.
+**Show the certificate directly from a node** (public PEM, dates and SHA256
+fingerprint; no controller-side file is created):
 
-Sensitive installer output should be handled carefully because command output can expose credentials if logging is enabled.
+```bash
+ansible-playbook playbooks/operations/show-pasarguard-certificate.yml \
+  --limit SERVER_NAME
+```
+
+The default remote path, shared with the PasarGuard role, is
+`/var/lib/pg-node/certs/ssl_cert.pem`. If a node uses another location,
+override it with `-e pasarguard_cert_path=/actual/path/cert.pem`.
+OpenSSL extracts only the public X.509 certificate—even if the input file
+also contains a private key. The operation is read-only and reports expiry
+information; **it does not issue or renew certificates**. The result is
+displayed as a **copy-ready, real multi-line PEM block**: copy the lines
+from `-----BEGIN CERTIFICATE-----` through `-----END CERTIFICATE-----`.
+No \n text or JSON quotes need to be removed. A dedicated aggregate
+callback prints the original public X.509 PEM without altering the default
+Ansible output for other tasks. Multiple nodes each get a separate block,
+with no interactive pauses.
+
+Previous `site.yml` versions may have left stale `*_cert.pem` copies
+under `/opt/pasarguard/certs` on the controller. New runs will not update
+or remove those old files. Review any consumers before deleting old local
+copies manually. Shell/terminal history and captured playbook logs can still
+retain certificate output; do not share it indiscriminately.
 
 ---
 
@@ -887,6 +924,12 @@ Do not rerun publication for an existing tag/version expecting to overwrite it, 
 
 # CI and Validation
 
+The mandatory **Secret Scan** job runs Gitleaks (pinned to a reviewed action commit) against Git history. It joins Repository Validation and Molecule Integration in the `CI Gate` dependency list. A detected secret fails the gate; the owner must treat a leaked credential as compromised and rotate/revoke it, not merely delete it from a later commit. No production credentials or hosts are supplied to CI.
+
+**Operational-failure contracts** enforce bounded APT lock waits during system/security maintenance, the existing SSH reconnect-before-upgrade policy, configured reboot timeouts, and fail-closed release metadata checks. These are isolated policy/negative-case unit tests, not production fault-injection tests. See [Operational hardening and remaining test gaps](docs/operational-hardening.md).
+
+**Artifact integrity gap:** FloatIP Manager and Port Forward Manager upstream GitHub Releases currently expose no signed assets or checksum manifests. The current download path uses HTTPS, validated stable tags and syntax checks but **does not** cryptographically authenticate an artifact against an independently trusted digest. A future upstream manifest/signature and verified pin are needed before claiming checksum enforcement.
+
 GitHub Actions is the authoritative validation environment for pull requests and protected branches. The Ansible controller does not need Python development packages, `ansible-lint`, `yamllint`, or Galaxy validation dependencies installed merely to validate repository changes.
 
 The workflow is defined in:
@@ -922,6 +965,8 @@ The CI workflow has a stable final status named `CI Gate`.
    - contract-tests Cloudflare, Docker, FloatIP separation, optimization non-goals, and branch/playbook topology without contacting provider APIs
    - exercises optimization tier/capacity calculations with synthetic host facts
    - renders optimization, firewall, and watchdog artifacts and validates them with Bash syntax checks, ShellCheck, and `systemd-analyze verify`
+
+The additional **Secret Scan** job is required for all pull requests and protected-branch pushes; `CI Gate` fails when it does not succeed.
 
 For normal feature/fix PRs targeting `development`, Full Release Qualification is skipped to keep feedback fast. It becomes mandatory on the protected promotion path to `main`. The final `CI Gate` fails whenever a mandatory release qualification run does not succeed.
 

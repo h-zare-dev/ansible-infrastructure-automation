@@ -1,0 +1,49 @@
+---
+# Read the PUBLIC X.509 certificate directly from each selected PasarGuard node.
+# Nothing is fetched, cached, or written to the Ansible controller.
+# openssl x509 outputs the certificate only, never a private key.
+- name: Show PasarGuard certificate from the selected node
+  hosts: pasarguard_nodes
+  gather_facts: false
+  become: true
+  vars_files:
+    - ../../roles/pasarguard/defaults/main.yml
+  tasks:
+    - name: Inspect remote PasarGuard certificate file
+      ansible.builtin.stat:
+        path: "{{ pasarguard_cert_path }}"
+      register: pasarguard_certificate_file
+
+    - name: Require an existing regular certificate file
+      ansible.builtin.assert:
+        that:
+          - pasarguard_certificate_file.stat.isreg | default(false)
+        fail_msg: >-
+          No PasarGuard certificate found at {{ pasarguard_cert_path }} on
+          {{ inventory_hostname }}. Confirm the actual path before retrying.
+
+    - name: Read certificate validity and SHA256 fingerprint on the node
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - x509
+          - -in
+          - "{{ pasarguard_cert_path }}"
+          - -noout
+          - -dates
+          - -fingerprint
+          - -sha256
+      register: pasarguard_certificate_details
+      changed_when: false
+
+    - name: Extract public certificate PEM on the node
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - x509
+          - -in
+          - "{{ pasarguard_cert_path }}"
+          - -outform
+          - PEM
+      register: pasarguard_certificate_pem
+      changed_when: false

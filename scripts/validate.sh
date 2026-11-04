@@ -51,6 +51,149 @@ echo "==> Running isolated GRUB preflight policy tests"
 python3 -m unittest discover -s tests/release -p 'test_grub_preflight.py' -v
 
 echo
+echo "==> Checking operational failure and CI security contracts"
+python3 -m unittest discover -s tests/release -p 'test_operational_hardening.py' -v
+
+echo
+echo "==> Checking automatic Bootstrap marker and discovery contracts"
+python3 -m unittest discover -s tests/release -p 'test_bootstrap_auto.py' -v
+
+echo
+echo "==> Verifying safe read-only PasarGuard certificate viewing"
+python3 -m unittest discover -s tests/release -p 'test_pasarguard_certificate.py' -v
+# Generate a disposable local certificate and intentionally append its private
+# key. The show-only playbook MUST print just the X.509 public certificate.
+cert_fixture_dir="$inventory_dir/cert-fixture"
+mkdir -p -- "$cert_fixture_dir"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj "/CN=ci.example.invalid" \
+  -keyout "$cert_fixture_dir/private.key" \
+  -out "$cert_fixture_dir/public.pem" >/dev/null 2>&1
+cat "$cert_fixture_dir/public.pem" "$cert_fixture_dir/private.key" > "$cert_fixture_dir/combined.pem"
+cert_view_log="$(mktemp)"
+if ! ansible-playbook -i "$INVENTORY" -c local \
+  playbooks/operations/show-pasarguard-certificate.yml \
+  --limit node-01 \
+  -e ansible_become=false \
+  -e "pasarguard_cert_path=$cert_fixture_dir/combined.pem" \
+  >"$cert_view_log" 2>&1; then
+  cat "$cert_view_log"
+  rm -f -- "$cert_view_log"
+  exit 1
+fi
+cat "$cert_view_log"
+# Decode ANSI colors from Actions and verify real PEM lines, not JSON \\n.
+python3 - "$cert_view_log" <<'PY'
+import pathlib
+import re
+import sys
+
+log = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+plain = re.sub(r"\x1b\[[0-9;]*m", "", log)
+lines = plain.splitlines()
+start = lines.index("-----BEGIN CERTIFICATE-----")
+end = lines.index("-----END CERTIFICATE-----", start + 1)
+pem_lines = lines[start + 1:end]
+assert pem_lines, "Missing certificate Base64 body"
+assert all(re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", line) for line in pem_lines), "Malformed PEM body"
+assert all(len(line) <= 64 for line in pem_lines), "Unexpected PEM line length"
+assert "sha256 Fingerprint=" in plain, "Missing SHA256 metadata"
+assert "notBefore=" in plain and "notAfter=" in plain, "Missing validity metadata"
+assert r"\n" not in "\n".join(lines[start:end + 1]), "Escaped newlines in certificate block"
+assert "PRIVATE KEY-----" not in plain, "Private key exposed"
+print("Copy-ready multi-line public PEM verified; no escaped newlines or private key.")
+PY
+if grep -Eq -- 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|unreachable=[1-9]|failed=[1-9]|changed=[1-9]' "$cert_view_log"; then
+  echo "ERROR: certificate view exposed a private key or changed/failed."
+  rm -f -- "$cert_view_log"
+  exit 1
+fi
+rm -f -- "$cert_view_log"
+
+echo
+echo "==> Running isolated read-only Bootstrap previews against CI fixtures"
+# Keep the CI fixture independent of the production controller's real SSH key.
+# The marker probe runs locally; the fixture key is never a usable credential.
+bootstrap_fixture_pubkey="$inventory_dir/bootstrap-fixture.pub"
+printf 'ssh-ed25519 %s bootstrap-ci-fixture\n' 'dGVzdGZpeHR1cmU=' > "$bootstrap_fixture_pubkey"
+ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
+  --limit node-01 \
+  -e '{"bootstrap_auto_discover_only": true, "bootstrap_probe_command": "printf MARKED"}'
+ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
+  --limit node-01 \
+  -e '{"bootstrap_auto_discover_only": true, "bootstrap_probe_command": "printf NEW"}' \
+  -e "vault_ssh_public_key_path=$bootstrap_fixture_pubkey"
+
+echo
+echo "==> Checking optional SSH fallback logging without hiding real failures"
+python3 -m unittest discover -s tests/release -p 'test_quiet_bootstrap_auth.py' -v
+# On CI, force both optional probes to connect to a CLOSED local TCP port.
+# Discovery-only mode must classify the host as unreachable without printing
+# an expected red SSH-auth error or contacting any production host.
+quiet_fallback_log="$(mktemp)"
+if ! ansible-playbook -i "$INVENTORY" playbooks/bootstrap-auto.yml \
+  --limit node-01 \
+  -e '{"ansible_host":"127.0.0.1","ansible_port":1,"ansible_user":"root","vault_ansible_password":"ci-fixture-only","bootstrap_auto_discover_only":true}' \
+  >"$quiet_fallback_log" 2>&1; then
+  cat "$quiet_fallback_log"
+  rm -f -- "$quiet_fallback_log"
+  exit 1
+fi
+cat "$quiet_fallback_log"
+grep -Fq 'probe unavailable: [node-01] (SSH Key did not connect;' "$quiet_fallback_log"
+grep -Fq 'probe unavailable: [node-01] (initial password did not connect;' "$quiet_fallback_log"
+grep -Fq '"msg": "node-01: unreachable"' "$quiet_fallback_log"
+if grep -Eq 'UNREACHABLE!|fatal:|\[ERROR\]|[.][.][.]ignoring|changed=[1-9]' "$quiet_fallback_log"; then
+  echo "ERROR: optional SSH probe incorrectly generated red error output."
+  rm -f -- "$quiet_fallback_log"
+  exit 1
+fi
+rm -f -- "$quiet_fallback_log"
+
+echo
+echo "==> Checking zero-candidate Auto Bootstrap remains warning-free and idempotent"
+# Exercise the real non-preview Auto Bootstrap path against a local CI fixture.
+# With a valid mocked marker, no host must enter SSH hardening or OS updates.
+# Do NOT globally disable host-pattern mismatch warnings in ansible.cfg.
+bootstrap_noop_log="$(mktemp)"
+if ! ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
+  --limit node-01 \
+  -e '{"bootstrap_probe_command": "printf MARKED"}' >"$bootstrap_noop_log" 2>&1; then
+  cat "$bootstrap_noop_log"
+  rm -f -- "$bootstrap_noop_log"
+  exit 1
+fi
+cat "$bootstrap_noop_log"
+if grep -Eq 'Could not match supplied host pattern|ignoring: __bootstrap_auto_pending|changed=[1-9]|failed=[1-9]|unreachable=[1-9]' "$bootstrap_noop_log"; then
+  echo "ERROR: no-candidate Auto Bootstrap produced a mismatch warning or modified a host."
+  rm -f -- "$bootstrap_noop_log"
+  exit 1
+fi
+rm -f -- "$bootstrap_noop_log"
+
+echo
+echo "==> Verifying two-host automatic discovery runs without serialization"
+# Local CI fixtures only. Exercises multiple managed hosts with no
+# controller SSH changes, provider API calls, or system updates.
+parallel_noop_log="$(mktemp)"
+if ! ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
+  --limit node-01,node-02 -f 5 \
+  -e '{"bootstrap_probe_command": "printf MARKED"}' >"$parallel_noop_log" 2>&1; then
+  cat "$parallel_noop_log"
+  rm -f -- "$parallel_noop_log"
+  exit 1
+fi
+cat "$parallel_noop_log"
+if grep -Eq 'Could not match supplied host pattern|changed=[1-9]|failed=[1-9]|unreachable=[1-9]' "$parallel_noop_log"; then
+  echo "ERROR: two-host Auto Bootstrap no-op modified hosts or showed errors."
+  rm -f -- "$parallel_noop_log"
+  exit 1
+fi
+grep -Fq '"node-01"' "$parallel_noop_log"
+grep -Fq '"node-02"' "$parallel_noop_log"
+rm -f -- "$parallel_noop_log"
+
+echo
 echo "==> Running ansible-lint"
 ansible-lint --offline playbooks roles molecule tests/release
 
@@ -67,7 +210,8 @@ mapfile -d '' -t playbooks < <(
 )
 
 for playbook in "${playbooks[@]}"; do
-  if [[ "$playbook" == "playbooks/bootstrap.yml" ]]; then
+  # Shared vars/*.yml are YAML mappings, not executable playbooks.
+  if [[ "$playbook" == "playbooks/bootstrap.yml" || "$playbook" == playbooks/vars/* ]]; then
     continue
   fi
   echo

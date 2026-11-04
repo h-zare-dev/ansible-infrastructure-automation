@@ -6,6 +6,37 @@ The project follows Semantic Versioning for published releases.
 
 ## [Unreleased]
 
+### Auto Bootstrap output
+- Show neutral fallback messages for optional SSH key, password and key
+  verification probes that cannot connect; suppress the misleading red
+  UNREACHABLE/ignored noise for those probes only.
+- Keep real Bootstrap failures, final discovery assertions, and the ordinary
+  stdout output visible through an extension of Ansible's default callback.
+
+### Certificate display
+- Render on-demand PasarGuard X.509 certificates as verbatim, copy-ready,
+  multi-line PEM instead of a JSON debug string containing escaped \n.
+  Use a narrowly scoped aggregate callback rather than an interactive
+  pause or a global stdout format change. Keep remote-only extraction and
+  private-key safety guarantees.
+
+### Cleanup and operational improvements
+- Retired the completed one-time Bootstrap Marker adoption utility and two
+  redundant standalone playbooks (SSH security and Port Forward Manager).
+  Their active roles remain in the standard Bootstrap/Site workflows.
+- Kept existing automatic Bootstrap Marker safety checks and made the
+  probe use the shared Marker and SSH hardening paths.
+- Removed unsupported RedHat package-maintenance code; Debian-family
+  system updates remain in place.
+- Stopped copying PasarGuard SSL certificates to the Ansible controller;
+  added read-only `show-pasarguard-certificate.yml` for direct public X.509
+  PEM, fingerprint and validity inspection on selected nodes.
+- Protected the credential-bearing PasarGuard installer task output while
+  retaining normal operational logging and current controller `known_hosts`
+  clearing behavior.
+- Reused the Abuse Defender script path default in deployment, cron and
+  handler, and removed obsolete migration documentation and CI checks.
+
 ## [1.1.0] - 2026-10-22
 
 Adds group-based, standalone installation and maintenance of iptables Port Forward Manager, improves controller SSH host-key cleanup reliability, and completes operational documentation.
