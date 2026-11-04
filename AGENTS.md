@@ -84,6 +84,10 @@ Rules:
 - `bootstrap-auto.yml` inspects all inventory hosts without changing inventory groups on disk. Only hosts without a valid Marker or managed hardening **and** with confirmed initial-password SSH access, or key-only SSH access whose configured official Ansible public key is already authorized, may be automatically bootstrapped together in a single unrestricted Ansible
   batch. Manual `bootstrap.yml` remains sequential by default. Do not add
   fixed-size `serial` limits to automatic discovery or Bootstrap. Unreachable, ambiguous or partially managed hosts must be skipped and explicitly reported.
+  - The `quiet_bootstrap_auth` stdout callback only replaces expected
+    unreachable output for the three `no_log` and `ignore_unreachable`
+    discovery probes. Keep all actual Bootstrap failures and the final
+    fail-closed classification visible. Preserve the PasarGuard PEM callback.
 - The completed one-time fleet Marker adoption workflow was retired; do not
   reintroduce bulk marker writing. Never infer successful Bootstrap from a
   missing Marker or from a hardening file alone.

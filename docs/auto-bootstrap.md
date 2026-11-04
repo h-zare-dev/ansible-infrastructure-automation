@@ -57,8 +57,16 @@ a working key with an unrelated one. Operators must still independently
 verify the server host fingerprint and that the matching private key is
 available to the Ansible controller. Without a key match, the host stays
 unmodified for review.
-Passwords and probe output are suppressed in Ansible logs; only the final
-classification is displayed.
+Raw probe failures and passwords are suppressed in the logs. Each optional
+SSH-auth/authorized-key probe that cannot connect prints a neutral
+`probe unavailable` message and proceeds to the next eligible check; no red
+`UNREACHABLE!` error is shown for these intentionally ignored probes. If
+both authentication methods fail, the host is still classified as
+`unreachable` and a normal changing run fails at the final assertion.
+Unrelated Bootstrap, connection-recovery, update, and reboot failures retain
+their normal error output. This is implemented by `quiet_bootstrap_auth`,
+a small subclass of the standard Ansible stdout callback; the public PEM
+aggregate callback remains enabled and all normal task output stays intact.
 
 | Result | Action |
 | --- | --- |

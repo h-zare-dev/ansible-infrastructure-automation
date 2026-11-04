@@ -125,6 +125,32 @@ ansible-playbook -i "$INVENTORY" -c local playbooks/bootstrap-auto.yml \
   -e "vault_ssh_public_key_path=$bootstrap_fixture_pubkey"
 
 echo
+echo "==> Checking optional SSH fallback logging without hiding real failures"
+python3 -m unittest discover -s tests/release -p 'test_quiet_bootstrap_auth.py' -v
+# On CI, force both optional probes to connect to a CLOSED local TCP port.
+# Discovery-only mode must classify the host as unreachable without printing
+# an expected red SSH-auth error or contacting any production host.
+quiet_fallback_log="$(mktemp)"
+if ! ansible-playbook -i "$INVENTORY" playbooks/bootstrap-auto.yml \
+  --limit node-01 \
+  -e '{"ansible_host":"127.0.0.1","ansible_port":1,"ansible_user":"root","vault_ansible_password":"ci-fixture-only","bootstrap_auto_discover_only":true}' \
+  >"$quiet_fallback_log" 2>&1; then
+  cat "$quiet_fallback_log"
+  rm -f -- "$quiet_fallback_log"
+  exit 1
+fi
+cat "$quiet_fallback_log"
+grep -Fq 'probe unavailable: [node-01] (SSH Key did not connect;' "$quiet_fallback_log"
+grep -Fq 'probe unavailable: [node-01] (initial password did not connect;' "$quiet_fallback_log"
+grep -Fq '"msg": "node-01: unreachable"' "$quiet_fallback_log"
+if grep -Eq 'UNREACHABLE!|fatal:|\[ERROR\]|[.][.][.]ignoring|changed=[1-9]' "$quiet_fallback_log"; then
+  echo "ERROR: optional SSH probe incorrectly generated red error output."
+  rm -f -- "$quiet_fallback_log"
+  exit 1
+fi
+rm -f -- "$quiet_fallback_log"
+
+echo
 echo "==> Checking zero-candidate Auto Bootstrap remains warning-free and idempotent"
 # Exercise the real non-preview Auto Bootstrap path against a local CI fixture.
 # With a valid mocked marker, no host must enter SSH hardening or OS updates.
