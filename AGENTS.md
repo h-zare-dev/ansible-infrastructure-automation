@@ -88,6 +88,11 @@ Rules:
     unreachable output for the three `no_log` and `ignore_unreachable`
     discovery probes. Keep all actual Bootstrap failures and the final
     fail-closed classification visible. Preserve the PasarGuard PEM callback.
+  - Explicit allowlisted partial recovery via `bootstrap_auto_resume_hosts` may
+    re-enter the Auto Bootstrap path only for marker-absent hosts with known
+    SSH Hardening, working key-only SSH, and confirmed official controller key.
+    Ordinary `needs_adoption` remains fail-closed. Do not bypass the
+    key match, remove hardening to force NEW, or create a Marker early.
 - The completed one-time fleet Marker adoption workflow was retired; do not
   reintroduce bulk marker writing. Never infer successful Bootstrap from a
   missing Marker or from a hardening file alone.

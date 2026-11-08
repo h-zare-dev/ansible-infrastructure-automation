@@ -6,6 +6,14 @@ The project follows Semantic Versioning for published releases.
 
 ## [Unreleased]
 
+### Safe Auto Bootstrap resumption
+- Add an explicit, per-inventory-host `bootstrap_auto_resume_hosts` allowlist
+  for partial Bootstrap recovery using the normal `bootstrap-auto.yml` path.
+  Require expected SSH Hardening, no completion Marker, successful public-key
+  SSH, and the exact configured official Ansible key before continuing.
+- Keep `needs_adoption` as the safe default; never auto-mark or skip final
+  OS updates/reboots. Scope recovery with `--limit`.
+
 ### Auto Bootstrap output
 - Show neutral fallback messages for optional SSH key, password and key
   verification probes that cannot connect; suppress the misleading red
