@@ -31,41 +31,37 @@ Bootstrap only positively identified new hosts:
 ansible-playbook playbooks/bootstrap-auto.yml
 ```
 
-### Resume a partially completed automatic Bootstrap
+### Automatic recovery from an interrupted Bootstrap
 
-If a previous run successfully applied SSH Hardening but failed later (for
-example, because the OS upgrade encountered broken APT dependencies), the
-final Marker is intentionally **absent** and an ordinary second run reports
-`needs_adoption`. Fix the original failure first. Then, **only after verifying
-the server identity and the configured official Ansible key**, explicitly
-allowlist that single inventory host for key-only Auto Bootstrap resume:
+The same `ansible-playbook playbooks/bootstrap-auto.yml` command discovers
+fresh hosts and retries verified partially bootstrapped hosts **without any
+extra parameters**. If SSH Hardening finished but a later OS update failed,
+the completion Marker stays absent. When the underlying failure is fixed,
+the next ordinary automatic run will retry all idempotent Bootstrap roles
+if and only if it can verify:
 
-```bash
-ansible-playbook playbooks/bootstrap-auto.yml \
-  --limit ByteHost-IPTun01 \
-  -e '{"bootstrap_auto_resume_hosts":["ByteHost-IPTun01"],"bootstrap_auto_discover_only":true}'
+- No valid completion Marker is present, and the expected managed SSH
+  Hardening is in place.
+- Key-only SSH succeeds for the inventory host.
+- The SSH account's `authorized_keys` contains the exact configured
+  official Ansible public key.
 
-ansible-playbook playbooks/bootstrap-auto.yml \
-  --limit ByteHost-IPTun01 \
-  -e '{"bootstrap_auto_resume_hosts":["ByteHost-IPTun01"]}'
-```
+This status is shown as `resume_key`. No extra recovery allowlist,
+manual Bootstrap or manually created Marker is needed. If the key cannot
+be verified, the host remains `needs_adoption`. Unknown hardening,
+invalid Markers and unreachable hosts remain fail-closed. The final Marker
+is still written only after completing the OS upgrade and any required
+reboot.
 
-The first command previews the `resume_key` classification without changes.
-The second reuses the normal Auto Bootstrap path and idempotent roles.
-Resumption is **not automatic by default**, and the explicit list is checked
-against the hosts included by `--limit`. The server must have a **missing
-Marker, the expected managed SSH Hardening, a working SSH Key connection,
-and the exact official Ansible public key already authorized**. If any
-requirement fails, it stays `needs_adoption`, `review_hardening`,
-`invalid_marker`, or `unreachable` and no Bootstrap work runs.
-The completion Marker is still written only after the OS upgrade and
-required reboot succeed.
+An unmarked host with matching hardening and the official key cannot be
+distinguished from an interrupted Bootstrap without a separate historical
+record. It will therefore re-run the normal Bootstrap roles (including
+package updates and potential reboot), **not** be silently considered
+complete. Verify the host fingerprint independently when an IP is recycled.
+`--limit HOST` is optional and only restricts target hosts; it is not
+required for automatic recovery.
 
-`--limit` isolates the target from unrelated unreachable inventory entries.
-Do not manually write the completion Marker or remove hardening to trick
-the discovery into treating the host as fresh.
-
-For a one/two-server canary, add `--limit HOST1,HOST2` to either command.
+For a one/two-server canary, addFor a one/two-server canary, add `--limit HOST1,HOST2` to either command.
 Do not change the Inventory groups for this purpose.
 
 Manual Bootstrap remains available with
@@ -81,8 +77,8 @@ mistaken for a successful password login. **When the key-only probe succeeds,
 the initial-password probe is skipped entirely**; password fallback is
 attempted only when key-based access cannot be established. This avoids
 a misleading `UNREACHABLE` authentication error for newly provisioned
-SSH-key hosts (for example OneProvider). For a key-only NEW host, a third
-read-only probe checks whether the public key configured by
+SSH-key hosts (for example OneProvider). For a key-only NEW or recognized HARDENED host without a completion Marker,
+a third read-only probe checks whether the public key configured by
 `vault_ssh_public_key_path` is already present in the SSH account's
 `~/.ssh/authorized_keys`. If it matches, Bootstrap runs using the working
 SSH Key and does not supply the initial Vault login password.
@@ -106,8 +102,8 @@ aggregate callback remains enabled and all normal task output stays intact.
 | --- | --- |
 | Valid marker and key-based SSH | Skip as `managed` |
 | Valid marker, but key failed and password worked | Skip and report `managed_key_unavailable` |
-| Marker absent but current Ansible hardening config present | Skip as `needs_adoption` by default |
-| Hardened marker-absent host with explicit allowlist and working official SSH Key | Resume as `resume_key` |
+| Marker absent, recognized hardening, working official SSH Key | Resume automatically as `resume_key` |
+| Marker absent, recognized hardening, but official SSH Key unverified | Skip as `needs_adoption` |
 | Hardening present but unexpected | Skip and report `review_hardening` |
 | Marker incomplete, invalid, or a symlink | Skip and report `invalid_marker` |
 | No marker and no hardening; **initial password login works** | Bootstrap as `candidate` |
@@ -115,9 +111,10 @@ aggregate callback remains enabled and all normal task output stays intact.
 | Key works, no marker/hardening, but official Ansible public key cannot be confirmed | Skip as `key_only_unmanaged` for review |
 | Neither probe works | Skip as `unreachable` |
 
-The existence of SSH hardening alone does not prove the full Bootstrap
-completed. A host with this state is reported as `needs_adoption` and must
-be reviewed and recovered manually. The former bulk-adoption command was
+The existence of SSH hardening alone does not prove Bootstrap completed.
+Only a finished Marker does; recognized hardening with verified official key
+is eligible to re-run automatic Bootstrap, while other incomplete states
+remain `needs_adoption`. The former bulk-adoption command was
 retired after the previous fleet migration.
 
 Internal Ansible runtime groups are used only to pass verified candidates
@@ -154,12 +151,11 @@ Bootstrap creates the marker **only after** SSH hardening, DNS, controller
 shortcuts, handler flush, SSH reconnection, system update and any required
 reboot complete successfully. It does not mean `site.yml` has been run.
 
-If Bootstrap stops mid-operation, the marker stays absent. If hardening was
-installed, the next auto-run reports `needs_adoption` rather than retrying a
-partially configured machine. Investigate and fix the original failure, then
-use the explicit key-verified Auto Bootstrap resume procedure above. Never
-resume unrelated hardened hosts implicitly. Invalid marker files are never overwritten by
-discovery or automatic Bootstrap.
+If Bootstrap stops mid-operation, the Marker stays absent. An ordinary
+Auto Bootstrap run then resumes only a recognized hardened host that proves
+the exact official authorized SSH key. There is no resume parameter.
+Unverified partially configured hosts retain `needs_adoption`, and invalid
+Markers are never overwritten by automatic discovery.
 
 After processing eligible new hosts, unresolved inventory states cause
 a non-success summary to avoid falsely claiming the fleet is fully onboarded.
@@ -180,5 +176,5 @@ Actual new-server password or key login, SSH cutover and reboot require
 controlled operator tests. Before changing a fresh canary, use
 `--limit NEW_HOST -e bootstrap_auto_discover_only=true` and verify the
 server host fingerprint and Ansible public/private key pair out of band.
-The preview should report `candidate` or `candidate_key` only when the
-corresponding authentication gate succeeds.
+The preview reports `candidate`, `candidate_key` or `resume_key`
+only when the corresponding authentication gate succeeds.

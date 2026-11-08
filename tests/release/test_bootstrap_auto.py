@@ -170,7 +170,7 @@ class BootstrapPlaybookContracts(unittest.TestCase):
         )
         self.assertNotIn("host_pattern_mismatch", read("ansible.cfg"))
 
-    def test_only_explicit_fresh_candidates_may_run(self):
+    def test_only_verified_candidates_may_run(self):
         tasks = load("playbooks/bootstrap-auto.yml")[0]["tasks"]
         pending = next(
             task for task in tasks
@@ -196,9 +196,8 @@ class BootstrapPlaybookContracts(unittest.TestCase):
         self.assertEqual(probes[2]["vars"]["ansible_password"], "")
         self.assertIn("ControlPath=none", probes[2]["vars"]["ansible_ssh_extra_args"])
         self.assertIn("PreferredAuthentications=publickey", probes[2]["vars"]["ansible_ssh_extra_args"])
-        self.assertIn("bootstrap_auto_key_code == 'NEW'", probes[2]["when"][0])
-        self.assertIn("bootstrap_auto_key_code == 'HARDENED'", probes[2]["when"][0])
-        self.assertIn("inventory_hostname in bootstrap_auto_resume_hosts", probes[2]["when"][0])
+        self.assertIn("bootstrap_auto_key_code in ['NEW', 'HARDENED']", probes[2]["when"])
+        self.assertNotIn("bootstrap_auto_resume_hosts", read("playbooks/bootstrap-auto.yml"))
         self.assertIn("bootstrap_auto_password_code != 'NEW'", probes[2]["when"])
         self.assertIn("vault_ssh_public_key_path", probes[2]["ansible.builtin.raw"])
         self.assertIn("authorized_keys", probes[2]["ansible.builtin.raw"])
@@ -256,6 +255,8 @@ class BootstrapPlaybookContracts(unittest.TestCase):
             ("MARKED", "", "", "managed"),
             ("INVALID", "", "", "invalid_marker"),
             ("HARDENED", "", "", "needs_adoption"),
+            ("HARDENED", "", "KEY_MATCH", "resume_key"),
+            ("HARDENED", "", "KEY_UNKNOWN", "needs_adoption"),
             ("NEW", "NEW", "", "candidate"),
             ("NEW", "", "KEY_MATCH", "candidate_key"),
             ("NEW", "", "KEY_UNKNOWN", "key_only_unmanaged"),
@@ -268,66 +269,52 @@ class BootstrapPlaybookContracts(unittest.TestCase):
                     bootstrap_auto_key_code=key_code,
                     bootstrap_auto_password_code=password_code,
                     bootstrap_auto_verified_key_code=verified_key_code,
-                    bootstrap_auto_resume_hosts=[],
-                    inventory_hostname="node-01",
                 ).strip()
                 self.assertEqual(actual, expected)
 
-    def test_partial_resume_is_explicit_key_only_and_fail_closed(self):
+    def test_partial_bootstrap_auto_retries_without_extra_flags(self):
         from jinja2 import Environment
 
         auto = load("playbooks/bootstrap-auto.yml")
         tasks = auto[0]["tasks"]
         shared = load("playbooks/vars/bootstrap-marker.yml")
-        self.assertEqual(shared["bootstrap_auto_resume_hosts"], [])
+        self.assertNotIn("bootstrap_auto_resume_hosts", shared)
+        self.assertNotIn("bootstrap_auto_resume_hosts", read("playbooks/bootstrap-auto.yml"))
+        self.assertFalse(any("allowlist" in task["name"] for task in tasks))
 
-        guard = tasks[0]
-        self.assertEqual(guard["name"], "Validate explicit partial-resume host allowlist")
-        self.assertTrue(guard["run_once"])
-        self.assertEqual(guard["delegate_to"], "localhost")
-        self.assertIn("difference(ansible_play_hosts_all)", " ".join(guard["ansible.builtin.assert"]["that"]))
+        key_check = next(task for task in tasks if task["name"].startswith("Verify official Ansible public key"))
+        condition = Environment().from_string("{{ " + key_check["when"][0] + " }}")
+        for code, expected in (
+            ("NEW", "True"), ("HARDENED", "True"), ("MARKED", "False"),
+            ("HARDENING_UNKNOWN", "False"), ("INVALID", "False"),
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(condition.render(bootstrap_auto_key_code=code), expected)
 
-        verified = next(t for t in tasks if t["name"].startswith("Verify configured Ansible public key"))
-        when = Environment().from_string("{{ " + verified["when"][0] + " }}")
-        def check(code, hosts, inventory_hostname="node-01"):
-            return when.render(
-                bootstrap_auto_key_code=code,
-                inventory_hostname=inventory_hostname,
-                bootstrap_auto_resume_hosts=hosts,
-            ) == "True"
-
-        self.assertTrue(check("NEW", []))
-        self.assertFalse(check("HARDENED", []))
-        self.assertFalse(check("HARDENED", ["other-host"]))
-        self.assertTrue(check("HARDENED", ["node-01"]))
-        self.assertFalse(check("HARDENING_UNKNOWN", ["node-01"]))
-        self.assertFalse(check("INVALID", ["node-01"]))
-        self.assertFalse(check("MARKED", ["node-01"]))
-
-        expr = next(t for t in tasks if t["name"] == "Classify host without changing it")[
+        expr = next(task for task in tasks if task["name"] == "Classify host without changing it")[
             "ansible.builtin.set_fact"
         ]["bootstrap_auto_status"]
         template = Environment().from_string(expr)
-        def classify(key, official, hosts, name="node-01"):
+        def classify(key, official, password=""):
             return template.render(
                 bootstrap_auto_key_code=key,
-                bootstrap_auto_password_code="",
+                bootstrap_auto_password_code=password,
                 bootstrap_auto_verified_key_code=official,
-                bootstrap_auto_resume_hosts=hosts,
-                inventory_hostname=name,
             ).strip()
 
-        self.assertEqual(classify("HARDENED", "KEY_MATCH", [],), "needs_adoption")
-        self.assertEqual(classify("HARDENED", "KEY_MATCH", ["other-host"]), "needs_adoption")
-        self.assertEqual(classify("HARDENED", "KEY_MATCH", ["node-01"]), "resume_key")
-        self.assertEqual(classify("HARDENED", "KEY_UNKNOWN", ["node-01"]), "needs_adoption")
-        self.assertEqual(classify("HARDENED", "", ["node-01"]), "needs_adoption")
-        self.assertEqual(classify("HARDENING_UNKNOWN", "KEY_MATCH", ["node-01"]), "review_hardening")
-        self.assertEqual(classify("INVALID", "KEY_MATCH", ["node-01"]), "invalid_marker")
-        self.assertEqual(classify("MARKED", "KEY_MATCH", ["node-01"]), "managed")
+        # Exact reported incident: SSH hardening succeeded, final APT update
+        # failed, so there is no completion Marker; plain auto-run resumes.
+        self.assertEqual(classify("HARDENED", "KEY_MATCH"), "resume_key")
+        self.assertEqual(classify("HARDENED", "KEY_UNKNOWN"), "needs_adoption")
+        self.assertEqual(classify("HARDENED", ""), "needs_adoption")
+        self.assertEqual(classify("HARDENING_UNKNOWN", "KEY_MATCH"), "review_hardening")
+        self.assertEqual(classify("INVALID", "KEY_MATCH"), "invalid_marker")
+        self.assertEqual(classify("MARKED", "KEY_MATCH"), "managed")
+        self.assertEqual(classify("", "", "HARDENED"), "needs_adoption")
 
-        pending = next(t for t in tasks if t.get("ansible.builtin.group_by", {}).get("key") == "__bootstrap_auto_pending")
+        pending = next(task for task in tasks if task.get("ansible.builtin.group_by", {}).get("key") == "__bootstrap_auto_pending")
         self.assertIn("'resume_key'", " ".join(pending["when"]))
+        self.assertIn("bootstrap_auto_discover_only", " ".join(pending["when"]))
         self.assertIn("resuming_with_key", auto[2]["tasks"][0]["ansible.builtin.debug"]["msg"])
 
     def test_manual_bootstrap_records_success_only_after_update(self):
