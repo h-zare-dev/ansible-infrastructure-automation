@@ -83,11 +83,18 @@ Rules:
   - `ansible.cfg` currently sets `host_key_checking = False`. This is a security risk; do not enable host-key checking or change the global wipe behavior without a separately reviewed SSH trust/bootstrap migration.
 - `bootstrap-auto.yml` inspects all inventory hosts without changing inventory groups on disk. Only hosts without a valid Marker or managed hardening **and** with confirmed initial-password SSH access, or key-only SSH access whose configured official Ansible public key is already authorized, may be automatically bootstrapped together in a single unrestricted Ansible
   batch. Manual `bootstrap.yml` remains sequential by default. Do not add
-  fixed-size `serial` limits to automatic discovery or Bootstrap. Unreachable, ambiguous or partially managed hosts must be skipped and explicitly reported.
+  fixed-size `serial` limits to automatic discovery or Bootstrap. Unreachable and ambiguous hosts must be skipped and explicitly reported.
+  Only key-verified partial hosts may resume automatically.
   - The `quiet_bootstrap_auth` stdout callback only replaces expected
     unreachable output for the three `no_log` and `ignore_unreachable`
     discovery probes. Keep all actual Bootstrap failures and the final
     fail-closed classification visible. Preserve the PasarGuard PEM callback.
+  - An ordinary Auto Bootstrap run may automatically retry a marker-absent
+    host with recognized managed SSH Hardening, successful key-only SSH,
+    and the exact official controller public key already authorized.
+    Never require a resume parameter. If the key is not verified,
+    keep `needs_adoption` fail-closed. Do not bypass key checks, remove
+    hardening to force NEW or create a completion Marker early.
 - The completed one-time fleet Marker adoption workflow was retired; do not
   reintroduce bulk marker writing. Never infer successful Bootstrap from a
   missing Marker or from a hardening file alone.
@@ -203,7 +210,8 @@ Rules:
   - `ansible.cfg` currently sets `host_key_checking = False`. This is a security risk; do not enable host-key checking or change the global wipe behavior without a separately reviewed SSH trust/bootstrap migration.
 - `bootstrap-auto.yml` inspects all inventory hosts without changing inventory groups on disk. Only hosts without a valid Marker or managed hardening **and** with confirmed initial-password SSH access, or key-only SSH access whose configured official Ansible public key is already authorized, may be automatically bootstrapped together in a single unrestricted Ansible
   batch. Manual `bootstrap.yml` remains sequential by default. Do not add
-  fixed-size `serial` limits to automatic discovery or Bootstrap. Unreachable, ambiguous or partially managed hosts must be skipped and explicitly reported.
+  fixed-size `serial` limits to automatic discovery or Bootstrap. Unreachable and ambiguous hosts must be skipped and explicitly reported.
+  Only key-verified partial hosts may resume automatically.
 - The completed one-time fleet Marker adoption workflow was retired; do not
   reintroduce bulk marker writing. Never infer successful Bootstrap from a
   missing Marker or from a hardening file alone.

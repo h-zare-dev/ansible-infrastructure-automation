@@ -6,6 +6,15 @@ The project follows Semantic Versioning for published releases.
 
 ## [Unreleased]
 
+### Automatic Auto Bootstrap recovery
+- Plain `ansible-playbook playbooks/bootstrap-auto.yml` now automatically
+  retries marker-absent hosts with recognized managed SSH Hardening and
+  a verified authorized official Ansible key, without resume-specific
+  parameters.
+- Keep unknown hardening, invalid Markers and unverified key states
+  fail-closed. Preserve all standard roles, OS updates, reboot behavior,
+  and final-only completion Marker writing.
+
 ### Auto Bootstrap output
 - Show neutral fallback messages for optional SSH key, password and key
   verification probes that cannot connect; suppress the misleading red

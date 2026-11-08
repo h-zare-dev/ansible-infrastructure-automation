@@ -56,7 +56,7 @@
           {{ (bootstrap_auto_password_probe.stdout_lines | default([]) | last | default('') | trim)
              if (bootstrap_auto_password_probe.rc | default(1) | int == 0) else '' }}
 
-    - name: Verify configured Ansible public key is already authorized for key-only hosts
+    - name: Verify official Ansible public key for key-only and partial hosts
       ansible.builtin.raw: |
         expected={{ lookup('file', vault_ssh_public_key_path).split()[1] | quote }}
         if [ -r "$HOME/.ssh/authorized_keys" ]; then
@@ -81,7 +81,9 @@
       check_mode: false
       no_log: true
       when:
-        - bootstrap_auto_key_code == 'NEW'
+        # Both fresh and partially hardened hosts must prove the official
+        # Ansible SSH key before starting or resuming provisioning.
+        - bootstrap_auto_key_code in ['NEW', 'HARDENED']
         - bootstrap_auto_password_code != 'NEW'
 
     - name: Parse authorized-key verification result
@@ -95,6 +97,8 @@
         bootstrap_auto_status: >-
           {{ 'managed' if bootstrap_auto_key_code == 'MARKED'
              else 'invalid_marker' if 'INVALID' in [bootstrap_auto_key_code, bootstrap_auto_password_code]
+             else 'resume_key' if bootstrap_auto_key_code == 'HARDENED'
+               and bootstrap_auto_verified_key_code == 'KEY_MATCH'
              else 'needs_adoption' if 'HARDENED' in [bootstrap_auto_key_code, bootstrap_auto_password_code]
              else 'review_hardening' if 'HARDENING_UNKNOWN' in [bootstrap_auto_key_code, bootstrap_auto_password_code]
              else 'managed_key_unavailable' if bootstrap_auto_password_code == 'MARKED'
@@ -105,7 +109,7 @@
 
     - name: Choose bootstrap authentication for this host
       ansible.builtin.set_fact:
-        bootstrap_auto_auth_method: "{{ 'key' if bootstrap_auto_status == 'candidate_key' else 'password' }}"
+        bootstrap_auto_auth_method: "{{ 'key' if bootstrap_auto_status in ['candidate_key', 'resume_key'] else 'password' }}"
 
     - name: Display discovery result without secrets
       ansible.builtin.debug:
@@ -116,12 +120,12 @@
         key: "__bootstrap_auto_status_{{ bootstrap_auto_status }}"
       changed_when: false
 
-    - name: Add positively verified fresh hosts to ephemeral bootstrap target
+    - name: Add verified fresh and resumable hosts to ephemeral bootstrap target
       ansible.builtin.group_by:
         key: __bootstrap_auto_pending
       changed_when: false
       when:
-        - bootstrap_auto_status in ['candidate', 'candidate_key']
+        - bootstrap_auto_status in ['candidate', 'candidate_key', 'resume_key']
         - not (bootstrap_auto_discover_only | bool)
 
 # Reuse the manually tested Bootstrap workflow without repeating its roles.
@@ -152,6 +156,7 @@
           managed: "{{ groups.get('__bootstrap_auto_status_managed', []) | sort }}"
           fresh: "{{ groups.get('__bootstrap_auto_status_candidate', []) | sort }}"
           fresh_with_key: "{{ groups.get('__bootstrap_auto_status_candidate_key', []) | sort }}"
+          resuming_with_key: "{{ groups.get('__bootstrap_auto_status_resume_key', []) | sort }}"
           needs_adoption: "{{ groups.get('__bootstrap_auto_status_needs_adoption', []) | sort }}"
           invalid_marker: "{{ groups.get('__bootstrap_auto_status_invalid_marker', []) | sort }}"
           hardening_review: "{{ groups.get('__bootstrap_auto_status_review_hardening', []) | sort }}"
