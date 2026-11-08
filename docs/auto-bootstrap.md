@@ -31,6 +31,40 @@ Bootstrap only positively identified new hosts:
 ansible-playbook playbooks/bootstrap-auto.yml
 ```
 
+### Resume a partially completed automatic Bootstrap
+
+If a previous run successfully applied SSH Hardening but failed later (for
+example, because the OS upgrade encountered broken APT dependencies), the
+final Marker is intentionally **absent** and an ordinary second run reports
+`needs_adoption`. Fix the original failure first. Then, **only after verifying
+the server identity and the configured official Ansible key**, explicitly
+allowlist that single inventory host for key-only Auto Bootstrap resume:
+
+```bash
+ansible-playbook playbooks/bootstrap-auto.yml \
+  --limit ByteHost-IPTun01 \
+  -e '{"bootstrap_auto_resume_hosts":["ByteHost-IPTun01"],"bootstrap_auto_discover_only":true}'
+
+ansible-playbook playbooks/bootstrap-auto.yml \
+  --limit ByteHost-IPTun01 \
+  -e '{"bootstrap_auto_resume_hosts":["ByteHost-IPTun01"]}'
+```
+
+The first command previews the `resume_key` classification without changes.
+The second reuses the normal Auto Bootstrap path and idempotent roles.
+Resumption is **not automatic by default**, and the explicit list is checked
+against the hosts included by `--limit`. The server must have a **missing
+Marker, the expected managed SSH Hardening, a working SSH Key connection,
+and the exact official Ansible public key already authorized**. If any
+requirement fails, it stays `needs_adoption`, `review_hardening`,
+`invalid_marker`, or `unreachable` and no Bootstrap work runs.
+The completion Marker is still written only after the OS upgrade and
+required reboot succeed.
+
+`--limit` isolates the target from unrelated unreachable inventory entries.
+Do not manually write the completion Marker or remove hardening to trick
+the discovery into treating the host as fresh.
+
 For a one/two-server canary, add `--limit HOST1,HOST2` to either command.
 Do not change the Inventory groups for this purpose.
 
@@ -72,7 +106,8 @@ aggregate callback remains enabled and all normal task output stays intact.
 | --- | --- |
 | Valid marker and key-based SSH | Skip as `managed` |
 | Valid marker, but key failed and password worked | Skip and report `managed_key_unavailable` |
-| Marker absent but current Ansible hardening config present | Skip as `needs_adoption` |
+| Marker absent but current Ansible hardening config present | Skip as `needs_adoption` by default |
+| Hardened marker-absent host with explicit allowlist and working official SSH Key | Resume as `resume_key` |
 | Hardening present but unexpected | Skip and report `review_hardening` |
 | Marker incomplete, invalid, or a symlink | Skip and report `invalid_marker` |
 | No marker and no hardening; **initial password login works** | Bootstrap as `candidate` |
@@ -121,8 +156,9 @@ reboot complete successfully. It does not mean `site.yml` has been run.
 
 If Bootstrap stops mid-operation, the marker stays absent. If hardening was
 installed, the next auto-run reports `needs_adoption` rather than retrying a
-partially configured machine. Investigate the cause, then recover explicitly
-using the manual procedure. Invalid marker files are never overwritten by
+partially configured machine. Investigate and fix the original failure, then
+use the explicit key-verified Auto Bootstrap resume procedure above. Never
+resume unrelated hardened hosts implicitly. Invalid marker files are never overwritten by
 discovery or automatic Bootstrap.
 
 After processing eligible new hosts, unresolved inventory states cause
