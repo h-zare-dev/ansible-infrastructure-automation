@@ -8,20 +8,6 @@
   vars_files:
     - vars/bootstrap-marker.yml
   tasks:
-    - name: Validate explicit partial-resume host allowlist  # noqa: run-once[task]
-      ansible.builtin.assert:
-        that:
-          - bootstrap_auto_resume_hosts is sequence
-          - bootstrap_auto_resume_hosts is not string
-          - bootstrap_auto_resume_hosts | difference(ansible_play_hosts_all) | length == 0
-        fail_msg: >-
-          bootstrap_auto_resume_hosts must be a list of inventory hosts
-          included in this play. For safety, use --limit and an explicit
-          -e '{"bootstrap_auto_resume_hosts":["HOST"]}' override.
-      run_once: true
-      delegate_to: localhost
-      become: false
-
     - name: Check marker and hardening with key-only SSH
       ansible.builtin.raw: "{{ bootstrap_probe_command }}"
       become: false
@@ -70,7 +56,7 @@
           {{ (bootstrap_auto_password_probe.stdout_lines | default([]) | last | default('') | trim)
              if (bootstrap_auto_password_probe.rc | default(1) | int == 0) else '' }}
 
-    - name: Verify configured Ansible public key is already authorized for key-only hosts
+    - name: Verify official Ansible public key for key-only and partial hosts
       ansible.builtin.raw: |
         expected={{ lookup('file', vault_ssh_public_key_path).split()[1] | quote }}
         if [ -r "$HOME/.ssh/authorized_keys" ]; then
@@ -95,12 +81,9 @@
       check_mode: false
       no_log: true
       when:
-        # A partial Hardened host is checked only when the operator
-        # explicitly allowlists this inventory name for safe resumption.
-        - >-
-          bootstrap_auto_key_code == 'NEW' or
-          (bootstrap_auto_key_code == 'HARDENED' and
-           inventory_hostname in bootstrap_auto_resume_hosts)
+        # Both fresh and partially hardened hosts must prove the official
+        # Ansible SSH key before starting or resuming provisioning.
+        - bootstrap_auto_key_code in ['NEW', 'HARDENED']
         - bootstrap_auto_password_code != 'NEW'
 
     - name: Parse authorized-key verification result
@@ -116,7 +99,6 @@
              else 'invalid_marker' if 'INVALID' in [bootstrap_auto_key_code, bootstrap_auto_password_code]
              else 'resume_key' if bootstrap_auto_key_code == 'HARDENED'
                and bootstrap_auto_verified_key_code == 'KEY_MATCH'
-               and inventory_hostname in bootstrap_auto_resume_hosts
              else 'needs_adoption' if 'HARDENED' in [bootstrap_auto_key_code, bootstrap_auto_password_code]
              else 'review_hardening' if 'HARDENING_UNKNOWN' in [bootstrap_auto_key_code, bootstrap_auto_password_code]
              else 'managed_key_unavailable' if bootstrap_auto_password_code == 'MARKED'
@@ -138,7 +120,7 @@
         key: "__bootstrap_auto_status_{{ bootstrap_auto_status }}"
       changed_when: false
 
-    - name: Add positively verified fresh hosts to ephemeral bootstrap target
+    - name: Add verified fresh and resumable hosts to ephemeral bootstrap target
       ansible.builtin.group_by:
         key: __bootstrap_auto_pending
       changed_when: false

@@ -3,10 +3,6 @@ bootstrap_marker_path: /var/lib/ansible-bootstrap-complete
 bootstrap_marker_content: "completed\n"
 bootstrap_hardening_path: /etc/ssh/sshd_config.d/00-security-hardening.conf
 bootstrap_auto_discover_only: false
-# Only explicitly selected inventory host names may resume a partially
-# hardened, marker-absent host. Keep safe default: do not resume.
-bootstrap_auto_resume_hosts: []
-
 # Read-only POSIX shell probe, safe on machines without Python.
 # Paths are shared with marker writes and SSH hardening checks; do not
 # duplicate literal paths inside the shell script.

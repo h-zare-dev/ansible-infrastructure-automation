@@ -6,13 +6,14 @@ The project follows Semantic Versioning for published releases.
 
 ## [Unreleased]
 
-### Safe Auto Bootstrap resumption
-- Add an explicit, per-inventory-host `bootstrap_auto_resume_hosts` allowlist
-  for partial Bootstrap recovery using the normal `bootstrap-auto.yml` path.
-  Require expected SSH Hardening, no completion Marker, successful public-key
-  SSH, and the exact configured official Ansible key before continuing.
-- Keep `needs_adoption` as the safe default; never auto-mark or skip final
-  OS updates/reboots. Scope recovery with `--limit`.
+### Automatic Auto Bootstrap recovery
+- Plain `ansible-playbook playbooks/bootstrap-auto.yml` now automatically
+  retries marker-absent hosts with recognized managed SSH Hardening and
+  a verified authorized official Ansible key, without resume-specific
+  parameters.
+- Keep unknown hardening, invalid Markers and unverified key states
+  fail-closed. Preserve all standard roles, OS updates, reboot behavior,
+  and final-only completion Marker writing.
 
 ### Auto Bootstrap output
 - Show neutral fallback messages for optional SSH key, password and key
