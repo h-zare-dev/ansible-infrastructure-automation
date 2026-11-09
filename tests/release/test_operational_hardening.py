@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -131,6 +135,106 @@ class CISecretScanningContracts(unittest.TestCase):
         script = workflow["jobs"]["ci-gate"]["steps"][0]["run"]
         self.assertIn('if [[ "$SECRET_SCAN_RESULT" != "success" ]]', script)
         self.assertEqual(scan["steps"][-1]["env"]["GITLEAKS_ENABLE_COMMENTS"], "false")
+
+
+class SequentialMaintenanceReachabilityTests(unittest.TestCase):
+    PLAYBOOK_CASES = (
+        ("security-updates", "security_updates"),
+        ("system-update", "system_update"),
+    )
+
+    def test_rolling_maintenance_preflight_preserves_serial_and_reports_skips(self):
+        for playbook_name, role_name in self.PLAYBOOK_CASES:
+            with self.subTest(playbook=playbook_name):
+                plays = load_yaml(f"playbooks/operations/{playbook_name}.yml")
+                self.assertEqual(len(plays), 3)
+                discovery, update, report = plays
+                self.assertEqual(discovery["hosts"], "all")
+                self.assertFalse(discovery["gather_facts"])
+                self.assertNotIn("serial", discovery)
+                probe = discovery["tasks"][0]
+                self.assertIn("ansible.builtin.wait_for_connection", probe)
+                self.assertTrue(probe["ignore_errors"])
+                self.assertTrue(probe["ignore_unreachable"])
+                self.assertFalse(probe["changed_when"])
+                self.assertIn(f"__{role_name}_reachable", str(discovery["tasks"]))
+                self.assertIn(f"__{role_name}_unavailable", str(discovery["tasks"]))
+                self.assertIn(f"__{role_name}_reachable", update["hosts"])
+                self.assertIn("all:!all", update["hosts"])
+                self.assertEqual(update["serial"], 1)
+                self.assertFalse(update["gather_facts"])
+                self.assertEqual(update["roles"], [role_name])
+                self.assertIn("ansible.builtin.wait_for_connection", update["pre_tasks"][0])
+                self.assertTrue(update["pre_tasks"][0]["ignore_unreachable"])
+                self.assertTrue(update["pre_tasks"][0]["ignore_errors"])
+                self.assertEqual(update["pre_tasks"][2]["ansible.builtin.meta"], "end_host")
+                self.assertIn("ansible.builtin.setup", update["pre_tasks"][3])
+                self.assertEqual(report["hosts"], "all")
+                self.assertIn(f"__{role_name}_unavailable", str(report["tasks"][-1]))
+                self.assertIn(f"{playbook_name}.yml", report["tasks"][-1]["ansible.builtin.assert"]["fail_msg"])
+                self.assertTrue(all(t["run_once"] and t["delegate_to"] == "localhost" for t in report["tasks"]))
+                self.assertNotIn("ignore_errors", update)
+                self.assertNotIn("ignore_unreachable", update)
+
+                if role_name == "system_update":
+                    self.assertIs(update["vars"]["system_update_reboot"], True)
+
+    @unittest.skipUnless(shutil.which("ansible-playbook"), "Ansible only available in CI")
+    def test_real_ansible_offline_middle_does_not_block_remaining_hosts(self):
+        # Use the real three-play production control flow with a harmless
+        # debug task in place of each role. No APT, reboot, or SSH to
+        # production. Offline host uses only loopback port 1.
+        for playbook_name, _ in self.PLAYBOOK_CASES:
+            with self.subTest(playbook=playbook_name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    tmpdir = Path(tmp)
+                    (tmpdir / "hosts.ini").write_text(
+                        chr(10).join([
+                            "[canary]",
+                            "online_first ansible_connection=local",
+                            "offline_middle ansible_connection=ssh ansible_host=127.0.0.1 ansible_port=1 "
+                            "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ConnectTimeout=1'",
+                            "online_last ansible_connection=local",
+                        ]) + chr(10),
+                        encoding="utf-8",
+                    )
+                    plays = copy.deepcopy(load_yaml(f"playbooks/operations/{playbook_name}.yml"))
+                    plays[1]["roles"] = []
+                    plays[1]["pre_tasks"][-1] = {
+                        "name": "Skip facts in isolated fixture",
+                        "ansible.builtin.debug": {"msg": "fixture facts skipped"},
+                    }
+                    plays[1]["tasks"] = [{
+                        "name": "Record fixture update for each eligible host",
+                        "ansible.builtin.debug": {"msg": "FIXTURE_UPDATED_{{ inventory_hostname }}"},
+                    }]
+                    plays[1]["become"] = False
+                    (tmpdir / "fixture.yml").write_text(
+                        yaml.safe_dump(plays, sort_keys=False), encoding="utf-8"
+                    )
+                    env = os.environ.copy()
+                    env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
+                    env["ANSIBLE_NOCOLOR"] = "1"
+                    result = subprocess.run(
+                        ["ansible-playbook", "-i", str(tmpdir / "hosts.ini"),
+                         str(tmpdir / "fixture.yml")],
+                        capture_output=True,
+                        text=True,
+                        timeout=100,
+                        env=env,
+                        cwd=str(ROOT),
+                        check=False,
+                    )
+                    output = result.stdout + result.stderr
+                    self.assertIn("FIXTURE_UPDATED_online_first", output)
+                    self.assertIn("FIXTURE_UPDATED_online_last", output)
+                    self.assertNotIn("FIXTURE_UPDATED_offline_middle", output)
+                    self.assertIn("offline_middle", output)
+                    self.assertIn("Report incomplete fleet", output)
+                    self.assertNotEqual(result.returncode, 0,
+                        "Skipped hosts must be reported after the rest finish")
+
+
 
 
 if __name__ == "__main__":

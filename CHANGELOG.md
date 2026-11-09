@@ -6,6 +6,17 @@ The project follows Semantic Versioning for published releases.
 
 ## [Unreleased]
 
+### Unreachable hosts in sequential security and system-update runs
+- Probe all inventory hosts before entering single-host serial batches for
+  both security-update and full system-update operations; skip unreachable
+  servers while preserving one-at-a-time maintenance for connected hosts.
+- Recheck connectivity just before each host's update, and report skipped
+  hosts only after the rest have been processed. Keep genuine update failures
+  visible and maintain a non-success fleet summary when hosts were skipped.
+- Add isolated real-Ansible regressions for both operations with an offline
+  loopback target between two local canaries; never run production updates
+  in CI. Preserve system-update reboot, GRUB and package role behavior.
+
 ### Automatic Auto Bootstrap recovery
 - Plain `ansible-playbook playbooks/bootstrap-auto.yml` now automatically
   retries marker-absent hosts with recognized managed SSH Hardening and

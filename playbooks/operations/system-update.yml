@@ -1,11 +1,103 @@
 ---
-- name: Safely update all managed hosts
+# Discover unavailable hosts before entering a serial: 1 maintenance batch.
+# This play is read-only and probes every inventory host concurrently.
+- name: Discover hosts reachable for system update configuration
   hosts: all
+  gather_facts: false
+  tasks:
+    - name: Check Ansible connection before rolling system updates
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 5
+        sleep: 2
+        timeout: 20
+      register: system_update_initial_connection
+      ignore_errors: true
+      ignore_unreachable: true
+      changed_when: false
+
+    - name: Select reachable hosts for system update configuration
+      ansible.builtin.group_by:
+        key: __system_update_reachable
+      changed_when: false
+      when:
+        - not (system_update_initial_connection.failed | default(false) | bool)
+        - not (system_update_initial_connection.unreachable | default(false) | bool)
+
+    - name: Record unavailable hosts without aborting subsequent hosts
+      ansible.builtin.group_by:
+        key: __system_update_unavailable
+      changed_when: false
+      when: >-
+        (system_update_initial_connection.failed | default(false) | bool) or
+        (system_update_initial_connection.unreachable | default(false) | bool)
+
+# Preserve complete per-host sequential operations, unlike task-level throttle.
+- name: Safely update all managed hosts that are reachable
+  hosts: >-
+    {{ '__system_update_reachable'
+       if groups.get('__system_update_reachable', []) | length > 0
+       else 'all:!all' }}
+  gather_facts: false
   become: true
   serial: 1
+  pre_tasks:
+    # The host may have gone offline while earlier hosts were updated.
+    - name: Recheck connectivity immediately before this host's update
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 5
+        sleep: 2
+        timeout: 20
+      register: system_update_current_connection
+      ignore_errors: true
+      ignore_unreachable: true
+      changed_when: false
+
+    - name: Record hosts lost after the initial discovery
+      ansible.builtin.group_by:
+        key: __system_update_unavailable
+      changed_when: false
+      when: >-
+        (system_update_current_connection.failed | default(false) | bool) or
+        (system_update_current_connection.unreachable | default(false) | bool)
+
+    - name: Skip the unavailable host and continue the next serial batch
+      ansible.builtin.meta: end_host
+      when: >-
+        (system_update_current_connection.failed | default(false) | bool) or
+        (system_update_current_connection.unreachable | default(false) | bool)
+
+    - name: Gather facts only for connected hosts
+      ansible.builtin.setup:
 
   vars:
     system_update_reboot: true
 
   roles:
     - system_update
+
+# Do not report a false fleet-wide success when some hosts were skipped.
+# This intentionally fails only AFTER all reachable hosts were processed.
+- name: Report unavailable system update targets after the rollout
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Show system update reachability summary  # noqa: run-once[task]
+      ansible.builtin.debug:
+        msg:
+          selected: "{{ groups.get('__system_update_reachable', []) | sort }}"
+          unavailable: "{{ groups.get('__system_update_unavailable', []) | sort }}"
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Report incomplete fleet system update configuration  # noqa: run-once[task]
+      ansible.builtin.assert:
+        that:
+          - groups.get('__system_update_unavailable', []) | length == 0
+        fail_msg: >-
+          One or more inventory hosts were unreachable and were skipped.
+          All reachable hosts were attempted. See the unreachable host list
+          above; rerun the same system-update.yml after restoring access.
+      run_once: true
+      delegate_to: localhost
+      become: false
