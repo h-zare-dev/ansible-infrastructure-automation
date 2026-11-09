@@ -112,7 +112,15 @@ Rules:
   `optimize.yml`, and `show-pasarguard-certificate.yml` remain
   independent operational playbooks. Standalone `security.yml` and
   `port-forward-manager.yml` were retired; their roles still run in `site.yml`.
-  - The two maintenance update playbooks target `all` with `serial: 1`; their APT tasks must use a bounded `lock_timeout` and must not kill package-manager processes or delete lock files.
+  - The security-update operation first discovers reachable inventory hosts,
+    then retains `serial: 1` for complete per-host maintenance. A refused
+    connection should skip that host and allow subsequent hosts to run,
+    with a final incomplete-fleet report. Do not silently ignore real
+    package configuration failures. The system-update operation still
+    targets `all` with `serial: 1`.
+  - Both maintenance update playbooks' APT tasks must use a bounded
+    `lock_timeout` and must not kill package-manager processes or delete
+    lock files.
   - `system_update` is Debian-family only; unsupported families must fail
     without making package changes.
 - `security_updates` keeps unattended security installation enabled while automatic reboot remains disabled by default.
@@ -229,7 +237,15 @@ Rules:
   `optimize.yml`, and `show-pasarguard-certificate.yml` remain
   independent operational playbooks. Standalone `security.yml` and
   `port-forward-manager.yml` were retired; their roles still run in `site.yml`.
-  - The two maintenance update playbooks target `all` with `serial: 1`; their APT tasks must use a bounded `lock_timeout` and must not kill package-manager processes or delete lock files.
+  - The security-update operation first discovers reachable inventory hosts,
+    then retains `serial: 1` for complete per-host maintenance. A refused
+    connection should skip that host and allow subsequent hosts to run,
+    with a final incomplete-fleet report. Do not silently ignore real
+    package configuration failures. The system-update operation still
+    targets `all` with `serial: 1`.
+  - Both maintenance update playbooks' APT tasks must use a bounded
+    `lock_timeout` and must not kill package-manager processes or delete
+    lock files.
   - `system_update` is Debian-family only; unsupported families must fail
     without making package changes.
 - `security_updates` keeps unattended security installation enabled while automatic reboot remains disabled by default.

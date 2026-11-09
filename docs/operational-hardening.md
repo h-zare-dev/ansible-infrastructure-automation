@@ -67,6 +67,39 @@ python3 -m unittest discover -s tests/release -p 'test_operational_hardening.py'
 `scripts/validate.sh` executes them for PRs to `development`; Full Release
 Qualification executes them again for protected promotions to `main`.
 
+## Sequential security-update rollout with unreachable hosts
+
+`playbooks/operations/security-updates.yml` first checks reachability
+without `serial` and without gathering facts, marking eligible hosts in a
+temporary in-memory group. It then runs the original `security_updates` role
+**one full host at a time** (`serial: 1`), rechecking the connection immediately
+before starting a host and ending only that host if it becomes unavailable.
+
+If a host is already offline, or goes offline while earlier hosts are being
+processed, that host is skipped and the rollout continues to remaining
+reachable hosts. After all reachable hosts are attempted, the final summary
+lists unavailable hosts and returns a nonzero result so the operator can retry
+the ordinary command after restoring connectivity. No inventory, credentials
+or SSH host configuration are changed by discovery.
+
+This specifically handles host unavailability **before** entering a host's
+update tasks. A sudden connection loss or an actual APT/module failure
+*during* a host's role remains a normal failure; it is not swallowed or
+automatically retried. Production validation of such later interruptions
+requires a separate staging test.
+
+Standard command (no new parameters):
+
+```bash
+ansible-playbook playbooks/operations/security-updates.yml
+```
+
+The offline CI regression invokes real Ansible against two local fixture
+hosts with an intentionally refused loopback connection between them. The
+update role is substituted by harmless debug output; CI checks that the
+last host was reached and that the final status reports the unavailable
+host. It never connects to production.
+
 ## Deferred real failure tests (operator-controlled staging only)
 
 1. Hold a legitimate APT/dpkg lock in an expendable test VM, verify the bounded

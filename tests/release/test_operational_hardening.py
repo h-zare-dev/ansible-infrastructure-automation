@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -131,6 +135,90 @@ class CISecretScanningContracts(unittest.TestCase):
         script = workflow["jobs"]["ci-gate"]["steps"][0]["run"]
         self.assertIn('if [[ "$SECRET_SCAN_RESULT" != "success" ]]', script)
         self.assertEqual(scan["steps"][-1]["env"]["GITLEAKS_ENABLE_COMMENTS"], "false")
+
+
+class SecurityUpdatesSerialIsolationTests(unittest.TestCase):
+    def test_security_updates_preflight_preserves_serial_and_reports_skips(self):
+        plays = load_yaml("playbooks/operations/security-updates.yml")
+        self.assertEqual(len(plays), 3)
+        discovery, update, report = plays
+        self.assertEqual(discovery["hosts"], "all")
+        self.assertFalse(discovery["gather_facts"])
+        self.assertNotIn("serial", discovery)
+        probe = discovery["tasks"][0]
+        self.assertIn("ansible.builtin.wait_for_connection", probe)
+        self.assertTrue(probe["ignore_errors"])
+        self.assertTrue(probe["ignore_unreachable"])
+        self.assertFalse(probe["changed_when"])
+        self.assertIn("__security_updates_reachable", str(discovery["tasks"]))
+        self.assertIn("__security_updates_unavailable", str(discovery["tasks"]))
+        self.assertIn("__security_updates_reachable", update["hosts"])
+        self.assertIn("all:!all", update["hosts"])
+        self.assertEqual(update["serial"], 1)
+        self.assertFalse(update["gather_facts"])
+        self.assertEqual(update["roles"], ["security_updates"])
+        self.assertIn("ansible.builtin.wait_for_connection", update["pre_tasks"][0])
+        self.assertTrue(update["pre_tasks"][0]["ignore_unreachable"])
+        self.assertTrue(update["pre_tasks"][0]["ignore_errors"])
+        self.assertEqual(update["pre_tasks"][2]["ansible.builtin.meta"], "end_host")
+        self.assertIn("ansible.builtin.setup", update["pre_tasks"][3])
+        self.assertEqual(report["hosts"], "all")
+        self.assertIn("__security_updates_unavailable", str(report["tasks"][-1]))
+        self.assertTrue(all(t["run_once"] and t["delegate_to"] == "localhost" for t in report["tasks"]))
+        self.assertNotIn("ignore_errors", update)
+        self.assertNotIn("ignore_unreachable", update)
+
+    @unittest.skipUnless(shutil.which("ansible-playbook"), "Ansible only available in CI")
+    def test_real_ansible_serial_batches_skip_offline_and_process_later_hosts(self):
+        # A fully isolated test: use the real production control flow but
+        # substitute the update role with a no-op debug task.
+        # The offline test host points to the local loopback port 1 only.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            (tmpdir / "hosts.ini").write_text(
+                "[canary]\\n"
+                "online_first ansible_connection=local\\n"
+                "offline_middle ansible_connection=ssh ansible_host=127.0.0.1 ansible_port=1 "
+                "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ConnectTimeout=1'\\n"
+                "online_last ansible_connection=local\\n",
+                encoding="utf-8",
+            )
+            plays = copy.deepcopy(load_yaml("playbooks/operations/security-updates.yml"))
+            # Avoid running any APT role or modifying any host in this test.
+            plays[1]["roles"] = []
+            plays[1]["pre_tasks"][-1] = {
+                "name": "Skip facts in isolated fixture",
+                "ansible.builtin.debug": {"msg": "fixture facts skipped"},
+            }
+            plays[1]["tasks"] = [{
+                "name": "Record fixture update for each eligible host",
+                "ansible.builtin.debug": {"msg": "FIXTURE_UPDATED_{{ inventory_hostname }}"},
+            }]
+            plays[1]["become"] = False
+            (tmpdir / "fixture.yml").write_text(
+                yaml.safe_dump(plays, sort_keys=False), encoding="utf-8"
+            )
+            env = os.environ.copy()
+            env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
+            env["ANSIBLE_NOCOLOR"] = "1"
+            result = subprocess.run(
+                ["ansible-playbook", "-i", str(tmpdir / "hosts.ini"),
+                 str(tmpdir / "fixture.yml")],
+                capture_output=True,
+                text=True,
+                timeout=100,
+                env=env,
+                cwd=str(ROOT),
+                check=False,
+            )
+            output = result.stdout + result.stderr
+            self.assertIn("FIXTURE_UPDATED_online_first", output)
+            self.assertIn("FIXTURE_UPDATED_online_last", output)
+            self.assertNotIn("FIXTURE_UPDATED_offline_middle", output)
+            self.assertIn("offline_middle", output)
+            self.assertIn("Report incomplete fleet security update configuration", output)
+            self.assertNotEqual(result.returncode, 0,
+                "Fleet summary must report incomplete targets after other hosts are done")
 
 
 if __name__ == "__main__":

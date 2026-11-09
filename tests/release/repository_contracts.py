@@ -138,13 +138,18 @@ assert node_roles == [
     "abuse_firewall",
 ], node_roles
 
-for path in [
-    "playbooks/operations/security-updates.yml",
-    "playbooks/operations/system-update.yml",
-]:
-    play = load_yaml(path)[0]
-    assert play["hosts"] == "all", (path, play["hosts"])
-    assert play["serial"] == 1, (path, play.get("serial"))
+security_updates_rollout = load_yaml("playbooks/operations/security-updates.yml")
+assert len(security_updates_rollout) == 3
+assert security_updates_rollout[0]["hosts"] == "all"
+assert "ansible.builtin.wait_for_connection" in security_updates_rollout[0]["tasks"][0]
+assert "all:!all" in security_updates_rollout[1]["hosts"]
+assert security_updates_rollout[1]["serial"] == 1
+assert security_updates_rollout[1]["roles"] == ["security_updates"]
+assert security_updates_rollout[2]["hosts"] == "all"
+
+system_update_play = load_yaml("playbooks/operations/system-update.yml")[0]
+assert system_update_play["hosts"] == "all"
+assert system_update_play["serial"] == 1
 
 security_defaults = load_yaml("roles/security_updates/defaults/main.yml")
 system_update_defaults = load_yaml("roles/system_update/defaults/main.yml")
