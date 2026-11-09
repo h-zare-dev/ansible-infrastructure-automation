@@ -460,12 +460,82 @@ def repair(paths, *, vault_binary="ansible-vault"):
     print("Repair does not overwrite private files or contact remote hosts.")
 
 
+def rebuild_shortcuts(paths):
+    """Rebuild only controller-local managed SSH aliases after restore."""
+    executable("ansible-playbook")
+    playbook = paths.repository / "playbooks/operations/controller-ssh-shortcuts.yml"
+    env = os.environ.copy()
+    env["ANSIBLE_VAULT_PASSWORD_FILE"] = str(paths.home / ".ansible/vault_pass")
+    run_checked(["ansible-playbook", "-i",
+                 str(paths.target("inventory/hosts.ini")),
+                 "--vault-password-file", str(paths.home / ".ansible/vault_pass"),
+                 str(playbook)], env=env)
+    print("Controller SSH shortcuts rebuilt without contacting managed hosts.")
+
+
+def configure_delivery(paths):
+    """Interactive first-time age recipient and Telegram configuration."""
+    executable("age")
+    if not paths.recipient_file.exists():
+        mode = input("Age public recipient [enter existing / blank to generate]: ").strip()
+        if mode:
+            recipient = mode
+        else:
+            executable("age-keygen")
+            identity = paths.home / ".config/ansible-controller-backup/age-identity.txt"
+            if identity.exists():
+                raise BackupError("Existing age identity found: " + str(identity))
+            ensure_private_dir(identity.parent)
+            run_checked(["age-keygen", "-o", str(identity)])
+            os.chmod(identity, 0o600)
+            recipient = run_checked(["age-keygen", "-y",
+                                     str(identity)]).decode("utf-8").strip()
+            print("RECOVERY WARNING: Copy this age private identity OFF the server:")
+            print(str(identity))
+            print("If the controller is lost, this identity is needed to decrypt Telegram backups.")
+        if not recipient.startswith("age1") or len(recipient) < 25:
+            raise BackupError("Invalid public age recipient")
+        atomic_bytes(paths.recipient_file, (recipient + "\n").encode(), 0o600)
+    else:
+        load_recipient(paths)
+        print("Using existing age public recipient; not overwriting it.")
+
+    if not paths.telegram_file.exists():
+        token = getpass.getpass("New Telegram bot token (hidden): ")
+        chat_id = input("Telegram chat ID: ").strip()
+        if not token or not chat_id:
+            raise BackupError("Telegram settings cannot be empty")
+        atomic_bytes(paths.telegram_file,
+                     (json.dumps({"bot_token": token, "chat_id": chat_id}) +
+                      "\n").encode(), 0o600)
+    else:
+        require_regular(paths.telegram_file)
+        print("Using existing Telegram credentials; not overwriting them.")
+
+    if input("Run encrypted backup + Telegram delivery test now? [y/N]: ").strip().lower() != "y":
+        print("Timer remains disabled until delivery is verified.")
+        return
+    if input("Age private recovery identity safely saved off-server? type SAVED: ").strip() != "SAVED":
+        raise BackupError("Do not enable unattended backup before saving recovery identity")
+    archive = backup(paths, upload=True)
+    print("Initial encrypted backup and Telegram delivery confirmed: " + str(archive))
+    if input("Install daily 03:00 local backup timer? [y/N]: ").strip().lower() == "y":
+        env = os.environ.copy()
+        env["ANSIBLE_VAULT_PASSWORD_FILE"] = str(paths.home / ".ansible/vault_pass")
+        run_checked(["ansible-playbook", "-i", "localhost,",
+                     str(paths.repository /
+                         "playbooks/operations/controller-backup-schedule.yml")], env=env)
+        print("Daily backup timer enabled.")
+
+
 def wizard(paths, *, vault_binary):
     print("Ansible Controller Setup")
     print("1) Fresh Install  2) Restore existing encrypted backup  3) Repair/Verify")
     choice = input("Choose [1/2/3]: ").strip()
     if choice == "1":
         fresh(paths, vault_binary=vault_binary)
+        if input("Configure encrypted Telegram backups? [y/N]: ").strip().lower() == "y":
+            configure_delivery(paths)
     elif choice == "2":
         archive = input("Absolute path to downloaded .tar.gz.age backup: ").strip()
         identity = input("Absolute path to age private recovery key: ").strip()
@@ -474,6 +544,9 @@ def wizard(paths, *, vault_binary):
             raise BackupError("Restore cancelled")
         restore(paths, archive, identity)
         repair(paths, vault_binary=vault_binary)
+        rebuild_shortcuts(paths)
+        if input("Configure new backup delivery? [y/N]: ").strip().lower() == "y":
+            configure_delivery(paths)
     elif choice == "3":
         repair(paths, vault_binary=vault_binary)
     else:
@@ -498,6 +571,7 @@ def main():
     r.add_argument("--identity", required=True)
     cmd.add_parser("install")
     cmd.add_parser("repair")
+    cmd.add_parser("configure-backup")
     args = parser.parse_args()
     paths = Paths(args.repository, args.home, args.state_dir, args.config_dir)
     if os.geteuid() != 0:
@@ -512,6 +586,8 @@ def main():
         wizard(paths, vault_binary=args.vault_binary)
     elif args.command == "repair":
         repair(paths, vault_binary=args.vault_binary)
+    elif args.command == "configure-backup":
+        configure_delivery(paths)
 
 
 if __name__ == "__main__":
