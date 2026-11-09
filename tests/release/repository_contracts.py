@@ -147,9 +147,18 @@ assert security_updates_rollout[1]["serial"] == 1
 assert security_updates_rollout[1]["roles"] == ["security_updates"]
 assert security_updates_rollout[2]["hosts"] == "all"
 
-system_update_play = load_yaml("playbooks/operations/system-update.yml")[0]
-assert system_update_play["hosts"] == "all"
-assert system_update_play["serial"] == 1
+system_update_rollout = load_yaml("playbooks/operations/system-update.yml")
+assert len(system_update_rollout) == 3
+assert system_update_rollout[0]["hosts"] == "all"
+assert "ansible.builtin.wait_for_connection" in system_update_rollout[0]["tasks"][0]
+assert "__system_update_unavailable" in str(system_update_rollout[0]["tasks"])
+assert "all:!all" in system_update_rollout[1]["hosts"]
+assert system_update_rollout[1]["serial"] == 1
+assert system_update_rollout[1]["vars"]["system_update_reboot"] is True
+assert system_update_rollout[1]["roles"] == ["system_update"]
+assert "ansible.builtin.setup" in system_update_rollout[1]["pre_tasks"][-1]
+assert system_update_rollout[2]["hosts"] == "all"
+assert "__system_update_unavailable" in str(system_update_rollout[2]["tasks"])
 
 security_defaults = load_yaml("roles/security_updates/defaults/main.yml")
 system_update_defaults = load_yaml("roles/system_update/defaults/main.yml")
