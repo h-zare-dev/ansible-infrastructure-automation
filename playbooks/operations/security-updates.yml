@@ -1,8 +1,100 @@
 ---
-- name: Configure automatic security updates
+# Discover unavailable hosts before entering a serial: 1 maintenance batch.
+# This play is read-only and probes every inventory host concurrently.
+- name: Discover hosts reachable for security update configuration
   hosts: all
+  gather_facts: false
+  tasks:
+    - name: Check Ansible connection before rolling security updates
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 5
+        sleep: 2
+        timeout: 20
+      register: security_updates_initial_connection
+      ignore_errors: true
+      ignore_unreachable: true
+      changed_when: false
+
+    - name: Select reachable hosts for security update configuration
+      ansible.builtin.group_by:
+        key: __security_updates_reachable
+      changed_when: false
+      when:
+        - not (security_updates_initial_connection.failed | default(false) | bool)
+        - not (security_updates_initial_connection.unreachable | default(false) | bool)
+
+    - name: Record unavailable hosts without aborting subsequent hosts
+      ansible.builtin.group_by:
+        key: __security_updates_unavailable
+      changed_when: false
+      when: >-
+        (security_updates_initial_connection.failed | default(false) | bool) or
+        (security_updates_initial_connection.unreachable | default(false) | bool)
+
+# Preserve complete per-host sequential operations, unlike task-level throttle.
+- name: Configure automatic security updates on reachable hosts
+  hosts: >-
+    {{ '__security_updates_reachable'
+       if groups.get('__security_updates_reachable', []) | length > 0
+       else 'all:!all' }}
+  gather_facts: false
   become: true
   serial: 1
+  pre_tasks:
+    # The host may have gone offline while earlier hosts were updated.
+    - name: Recheck connectivity immediately before this host's update
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 5
+        sleep: 2
+        timeout: 20
+      register: security_updates_current_connection
+      ignore_errors: true
+      ignore_unreachable: true
+      changed_when: false
+
+    - name: Record hosts lost after the initial discovery
+      ansible.builtin.group_by:
+        key: __security_updates_unavailable
+      changed_when: false
+      when: >-
+        (security_updates_current_connection.failed | default(false) | bool) or
+        (security_updates_current_connection.unreachable | default(false) | bool)
+
+    - name: Skip the unavailable host and continue the next serial batch
+      ansible.builtin.meta: end_host
+      when: >-
+        (security_updates_current_connection.failed | default(false) | bool) or
+        (security_updates_current_connection.unreachable | default(false) | bool)
+
+    - name: Gather facts only for connected hosts
+      ansible.builtin.setup:
 
   roles:
     - security_updates
+
+# Do not report a false fleet-wide success when some hosts were skipped.
+# This intentionally fails only AFTER all reachable hosts were processed.
+- name: Report unavailable security update targets after the rollout
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Show security update reachability summary  # noqa: run-once[task]
+      ansible.builtin.debug:
+        msg:
+          selected: "{{ groups.get('__security_updates_reachable', []) | sort }}"
+          unavailable: "{{ groups.get('__security_updates_unavailable', []) | sort }}"
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Report incomplete fleet security update configuration  # noqa: run-once[task]
+      ansible.builtin.assert:
+        that:
+          - groups.get('__security_updates_unavailable', []) | length == 0
+        fail_msg: >-
+          One or more inventory hosts were unreachable and were skipped.
+          All reachable hosts were attempted. See the unreachable host list
+          above; rerun the same security-updates.yml after restoring access.
+      run_once: true
+      delegate_to: localhost
+      become: false

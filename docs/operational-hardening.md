@@ -67,6 +67,46 @@ python3 -m unittest discover -s tests/release -p 'test_operational_hardening.py'
 `scripts/validate.sh` executes them for PRs to `development`; Full Release
 Qualification executes them again for protected promotions to `main`.
 
+## Sequential security and system updates with unreachable hosts
+
+Both `playbooks/operations/security-updates.yml` and
+`playbooks/operations/system-update.yml` first check reachability without
+`serial` and without gathering facts, marking eligible hosts in temporary
+in-memory groups. Then each runs its original role — `security_updates` or
+`system_update` — **one full host at a time** (`serial: 1`), rechecking the
+connection immediately before starting each host and ending only that host
+if it becomes unavailable.
+
+If a host is already offline, or goes offline while earlier hosts are being
+processed, that host is skipped and the rollout continues to remaining
+reachable hosts. After all reachable hosts are attempted, the final summary
+lists unavailable hosts and returns a nonzero result so the operator can retry
+the ordinary command after restoring connectivity. No inventory, credentials
+or SSH host configuration are changed by discovery.
+
+This specifically handles host unavailability **before** entering a host's
+update tasks. A sudden connection loss or an actual APT/module failure
+*during* a host's role remains a normal failure; it is not swallowed or
+automatically retried. Production validation of such later interruptions
+requires a separate staging test.
+
+Standard command (no new parameters):
+
+```bash
+ansible-playbook playbooks/operations/security-updates.yml
+ansible-playbook playbooks/operations/system-update.yml
+```
+
+`system-update.yml` still enables `system_update_reboot: true` and retains
+the existing GRUB preflight and package upgrade behavior. This fix does not
+change restart policy, package maintenance or host order.
+
+The offline CI regression invokes real Ansible for **both** playbooks
+against two local fixture hosts with an intentionally refused loopback
+connection between them. The update roles are substituted by harmless
+debug output; CI checks that the last host was reached and that the
+final status reports the unavailable host. It never connects to production.
+
 ## Deferred real failure tests (operator-controlled staging only)
 
 1. Hold a legitimate APT/dpkg lock in an expendable test VM, verify the bounded
