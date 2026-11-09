@@ -176,11 +176,13 @@ class SecurityUpdatesSerialIsolationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
             (tmpdir / "hosts.ini").write_text(
-                "[canary]\\n"
-                "online_first ansible_connection=local\\n"
-                "offline_middle ansible_connection=ssh ansible_host=127.0.0.1 ansible_port=1 "
-                "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ConnectTimeout=1'\\n"
-                "online_last ansible_connection=local\\n",
+                chr(10).join([
+                    "[canary]",
+                    "online_first ansible_connection=local",
+                    "offline_middle ansible_connection=ssh ansible_host=127.0.0.1 ansible_port=1 "
+                    "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ConnectTimeout=1'",
+                    "online_last ansible_connection=local",
+                ]) + chr(10),
                 encoding="utf-8",
             )
             plays = copy.deepcopy(load_yaml("playbooks/operations/security-updates.yml"))
