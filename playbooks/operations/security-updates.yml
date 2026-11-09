@@ -78,7 +78,7 @@
   hosts: all
   gather_facts: false
   tasks:
-    - name: Show security update reachability summary
+    - name: Show security update reachability summary  # noqa: run-once[task]
       ansible.builtin.debug:
         msg:
           selected: "{{ groups.get('__security_updates_reachable', []) | sort }}"
@@ -87,7 +87,7 @@
       delegate_to: localhost
       become: false
 
-    - name: Report incomplete fleet security update configuration
+    - name: Report incomplete fleet security update configuration  # noqa: run-once[task]
       ansible.builtin.assert:
         that:
           - groups.get('__security_updates_unavailable', []) | length == 0
