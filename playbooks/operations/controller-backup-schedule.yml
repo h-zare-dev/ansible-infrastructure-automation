@@ -1,0 +1,73 @@
+---
+# Install a daily encrypted backup timer on the controller ONLY.
+- name: Schedule the local Ansible controller backup
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Check configured age recipient
+      ansible.builtin.stat:
+        path: /etc/ansible-controller-backup/age-recipient.txt
+      register: controller_age_recipient
+
+    - name: Check configured Telegram credentials
+      ansible.builtin.stat:
+        path: /etc/ansible-controller-backup/telegram.json
+      register: controller_telegram_credentials
+
+    - name: Refuse scheduling without encryption and delivery configuration
+      ansible.builtin.assert:
+        that:
+          - controller_age_recipient.stat.isreg | default(false)
+          - controller_telegram_credentials.stat.isreg | default(false)
+          - (controller_telegram_credentials.stat.mode | default('')) == '0600'
+        fail_msg: Configure age recipient and mode-0600 Telegram credentials first.
+
+    - name: Install controller backup systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ansible-controller-backup.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Encrypted local Ansible controller backup to Telegram
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          User=root
+          WorkingDirectory=/root/ansible-project
+          Environment=ANSIBLE_VAULT_PASSWORD_FILE=/root/.ansible/vault_pass
+          ExecStart=/opt/ansible-controller-venv/bin/ansible-playbook playbooks/operations/controller-backup.yml
+          NoNewPrivileges=true
+          PrivateTmp=true
+
+    - name: Install daily controller backup timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ansible-controller-backup.timer
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Daily encrypted Ansible controller backup
+
+          [Timer]
+          OnCalendar=*-*-* 03:00:00
+          Persistent=true
+          RandomizedDelaySec=600
+          Unit=ansible-controller-backup.service
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable and start the daily controller backup timer
+      ansible.builtin.systemd_service:
+        name: ansible-controller-backup.timer
+        daemon_reload: true
+        enabled: true
+        state: started

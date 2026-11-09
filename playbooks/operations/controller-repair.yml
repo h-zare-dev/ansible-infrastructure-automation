@@ -1,0 +1,19 @@
+---
+# Local verify/repair, never run against remote inventory hosts.
+- name: Verify Production Ansible controller
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Validate controller Vault, keypair, Inventory and SSH config
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../../scripts/controller_manager.py"
+          - --vault-binary
+          - "{{ ansible_playbook_python | dirname }}/ansible-vault"
+          - repair
+      changed_when: false
+      check_mode: false
