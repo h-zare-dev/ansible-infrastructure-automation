@@ -171,6 +171,7 @@ class SequentialMaintenanceReachabilityTests(unittest.TestCase):
                 self.assertIn("ansible.builtin.setup", update["pre_tasks"][3])
                 self.assertEqual(report["hosts"], "all")
                 self.assertIn(f"__{role_name}_unavailable", str(report["tasks"][-1]))
+                self.assertIn(f"{playbook_name}.yml", report["tasks"][-1]["ansible.builtin.assert"]["fail_msg"])
                 self.assertTrue(all(t["run_once"] and t["delegate_to"] == "localhost" for t in report["tasks"]))
                 self.assertNotIn("ignore_errors", update)
                 self.assertNotIn("ignore_unreachable", update)

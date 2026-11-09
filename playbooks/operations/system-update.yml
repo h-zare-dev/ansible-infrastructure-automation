@@ -97,7 +97,7 @@
         fail_msg: >-
           One or more inventory hosts were unreachable and were skipped.
           All reachable hosts were attempted. See the unreachable host list
-          above; rerun the same security-updates.yml after restoring access.
+          above; rerun the same system-update.yml after restoring access.
       run_once: true
       delegate_to: localhost
       become: false
