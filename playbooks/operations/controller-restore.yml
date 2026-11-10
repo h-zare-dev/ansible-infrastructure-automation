@@ -27,3 +27,15 @@
           - "{{ controller_restore_identity }}"
       changed_when: true
       when: not ansible_check_mode
+
+    - name: Regenerate SSH shortcuts using only the restored local inventory
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python | dirname }}/ansible-playbook"
+          - -i
+          - /root/ansible-project/inventory/hosts.ini
+          - --vault-password-file
+          - /root/.ansible/vault_pass
+          - "{{ playbook_dir }}/controller-ssh-shortcuts.yml"
+      changed_when: true
+      when: not ansible_check_mode
