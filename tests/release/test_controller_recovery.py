@@ -33,7 +33,9 @@ class ControllerRecoveryTests(unittest.TestCase):
             home=base / "root",
             state=base / "state",
             config=base / "config",
+            work_dir=base / "private-work",
         )
+        ctl.ensure_private_dir(self.paths.work_dir)
         self.paths.repository.mkdir()
         command(["git", "init", "-q", "-b", "main", str(self.paths.repository)])
         command(["git", "-C", str(self.paths.repository), "config", "user.name", "CI"])
@@ -101,7 +103,8 @@ class ControllerRecoveryTests(unittest.TestCase):
             ctl.restore(self.paths, encrypted, identity)
 
         recovered = ctl.Paths(repository=Path(self.tmp.name) / "restored/project",
-                              home=Path(self.tmp.name) / "restored/root")
+                              home=Path(self.tmp.name) / "restored/root",
+                              work_dir=self.paths.work_dir)
         with redirect_stdout(io.StringIO()):
             ctl.restore(recovered, encrypted, identity)
         for name, contents in self.sample.items():
@@ -128,7 +131,8 @@ class ControllerRecoveryTests(unittest.TestCase):
                          "Ansible Vault required for fresh-install test")
     def test_fresh_installer_creates_real_encrypted_vault(self):
         new_paths = ctl.Paths(repository=Path(self.tmp.name) / "new-project",
-                              home=Path(self.tmp.name) / "new-root")
+                              home=Path(self.tmp.name) / "new-root",
+                              work_dir=self.paths.work_dir)
         new_paths.repository.mkdir()
         prompts = iter(["example.invalid", ""])
         passwords = iter(["initial-pass", "sudo-pass", "test-cf-token",

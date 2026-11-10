@@ -48,11 +48,13 @@ class BackupError(Exception):
 
 class Paths:
     def __init__(self, repository=DEFAULT_REPO, home=DEFAULT_HOME,
-                 state=DEFAULT_STATE, config=DEFAULT_CONFIG):
+                 state=DEFAULT_STATE, config=DEFAULT_CONFIG,
+                 work_dir=Path("/run")):
         self.repository = Path(repository)
         self.home = Path(home)
         self.state = Path(state)
         self.config = Path(config)
+        self.work_dir = Path(work_dir)
 
     def target(self, name):
         root, suffix, _ = FILES[name]
@@ -189,7 +191,8 @@ def backup(paths, *, upload=False):
     ensure_private_dir(paths.archives)
     executable("age")
     # /run is tmpfs on supported Ubuntu hosts; never place plaintext in /tmp
-    with tempfile.TemporaryDirectory(prefix="controller-backup-", dir="/run") as tmp:
+    with tempfile.TemporaryDirectory(prefix="controller-backup-",
+                                         dir=paths.work_dir) as tmp:
         os.chmod(tmp, 0o700)
         plain = Path(tmp) / "payload.tar.gz"
         manifest = make_archive(paths, plain)
@@ -291,7 +294,7 @@ def inspect_plain_archive(plain):
     return manifest, result
 
 
-def open_archive(archive, identity, callback):
+def open_archive(archive, identity, callback, *, work_dir=Path("/run")):
     archive = Path(archive)
     identity = Path(identity)
     require_regular(archive) if archive.stat().st_size <= MAX_FILE else None
@@ -299,7 +302,8 @@ def open_archive(archive, identity, callback):
         raise BackupError("Missing or unsafe archive")
     require_regular(identity)
     executable("age")
-    with tempfile.TemporaryDirectory(prefix="controller-restore-", dir="/run") as tmp:
+    with tempfile.TemporaryDirectory(prefix="controller-restore-",
+                                         dir=work_dir) as tmp:
         os.chmod(tmp, 0o700)
         plain = Path(tmp) / "decrypted.tar.gz"
         run_checked(["age", "-d", "-i", str(identity), "-o", str(plain),
@@ -312,7 +316,7 @@ def verify(paths, archive, identity):
         print("Verified encrypted backup, format " + str(manifest["format"]))
         print("Git commit: " + manifest["git_commit"])
         print("Checked files: " + str(len(data)))
-    return open_archive(archive, identity, output)
+    return open_archive(archive, identity, output, work_dir=paths.work_dir)
 
 
 def restore(paths, archive, identity, *, replace_existing=False):
@@ -357,7 +361,7 @@ def restore(paths, archive, identity, *, replace_existing=False):
         print("Restored " + str(len(data)) + " controller files")
         print("Original Git commit: " + manifest["git_commit"])
         print("Run controller repair to validate Vault and SSH access locally.")
-    return open_archive(archive, identity, apply)
+    return open_archive(archive, identity, apply, work_dir=paths.work_dir)
 
 
 def require_not_initialized(paths):
@@ -399,7 +403,8 @@ def fresh(paths, *, vault_binary, ssh_keygen="ssh-keygen"):
         inventory = b"[common]\n\n[pasarguard_nodes]\n\n[ssh_ubuntu]\n\n[abuse_protected]\n\n[port_forward_nodes]\n"
         print("An empty inventory will be created. Add real hosts before running site.yml.")
     # Ensure plaintext secrets reside only in /run tmpfs, not persistent disk.
-    with tempfile.TemporaryDirectory(prefix="controller-fresh-", dir="/run") as tmp:
+    with tempfile.TemporaryDirectory(prefix="controller-fresh-",
+                                         dir=paths.work_dir) as tmp:
         os.chmod(tmp, 0o700)
         clear = Path(tmp) / "vault.json"
         clear.write_text(json.dumps(secrets), encoding="utf-8")
