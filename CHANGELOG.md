@@ -6,6 +6,19 @@ The project follows Semantic Versioning for published releases.
 
 ## [Unreleased]
 
+### Production controller encrypted backup and disaster recovery
+- Add a standalone Ubuntu controller installer with Fresh, Restore and
+  Repair modes, pinned Ansible Core and Galaxy collections, and clean-main
+  checkout safety.
+- Back up five required Production-only private files (including Vault
+  password file) as a manifest-verified age-encrypted archive, with optional
+  confirmed Telegram delivery and a daily systemd timer.
+- Keep age private recovery identity OFF the encrypted archive, refuse
+  destructive restores, and regenerate SSH aliases locally from Inventory.
+- Add isolated real-age cryptographic restore tests. No Production host
+  access, remote updates or modifications to the PasarGuard SQL backup.
+
+
 ### Unreachable hosts in sequential security and system-update runs
 - Probe all inventory hosts before entering single-host serial batches for
   both security-update and full system-update operations; skip unreachable
