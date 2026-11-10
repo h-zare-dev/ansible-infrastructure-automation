@@ -51,6 +51,11 @@ jobs:
           ansible-galaxy collection install -r requirements.yml
           python -m pip check
 
+      - name: Install real age CLI for encrypted backup recovery tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y age
+
       - name: Show validation versions
         run: |
           python --version

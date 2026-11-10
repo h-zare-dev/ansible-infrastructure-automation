@@ -20,5 +20,6 @@ integration_release_system:
 
 contract_only:
   - cloudflare_dns
+  - controller_backup
   - docker
   - optimization

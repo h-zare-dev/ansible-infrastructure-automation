@@ -1,0 +1,14 @@
+---
+# Recreates aliases from restored inventory without connecting to remote hosts.
+- name: Rebuild local controller SSH shortcuts only
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars_files:
+    - ../../inventory/group_vars/all/vars.yml
+    - ../../inventory/group_vars/all/vault.yml
+
+  roles:
+    - controller_ssh_config

@@ -1,0 +1,42 @@
+---
+# Explicitly local; refuses to overwrite existing private controller files.
+- name: Restore encrypted Production Ansible controller files
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars_prompt:
+    - name: controller_restore_archive
+      prompt: Absolute path of encrypted controller .tar.gz.age backup
+      private: false
+    - name: controller_restore_identity
+      prompt: Absolute path of your age private recovery identity
+      private: false
+
+  tasks:
+    - name: Restore encrypted and verified controller files
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../../scripts/controller_manager.py"
+          - restore
+          - --archive
+          - "{{ controller_restore_archive }}"
+          - --identity
+          - "{{ controller_restore_identity }}"
+      changed_when: true
+      when: not ansible_check_mode
+
+    - name: Regenerate SSH shortcuts using only the restored local inventory
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/env
+          - ansible-playbook
+          - -i
+          - /root/ansible-project/inventory/hosts.ini
+          - --vault-password-file
+          - /root/.ansible/vault_pass
+          - "{{ playbook_dir }}/controller-ssh-shortcuts.yml"
+      changed_when: true
+      when: not ansible_check_mode

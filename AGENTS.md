@@ -264,6 +264,32 @@ Rules:
 - Public repository files remain sanitized.
 - Real inventory, real Vault files, Vault passwords, and private keys remain excluded from Git.
 
+## Controller-only Backup / Install / Restore / Repair
+
+- The Production controller is /root/ansible-project on main; ignore
+  /root/ansible-project-development. Changes to these features go through
+  ordinary feature branches and PRs, never direct protected-branch commits.
+- The installer, encrypted backup, restore, repair and SSH shortcut rebuild
+  must run on localhost only. They must not connect to managed hosts, run
+  site.yml/bootstrap.yml, or modify /opt/sql_backup.
+- Back up exactly the current ignored Production inventory and encrypted
+  Vault, /root/.ansible/vault_pass, and the controller's SSH keypair.
+  Never print passwords, private keys, contents of decrypted Vault, or
+  Telegram bot tokens in logs or CI fixtures.
+- Encrypt the archive with the age public recipient before any upload.
+  Never upload plaintext secrets. Never include an age PRIVATE recovery key
+  inside its own encrypted archive; require independent offline key custody.
+- Restore must validate archive entries, hashes and file types and refuse
+  silent overwrite of existing private files. Repair must preserve secrets
+  and must not automatically rotate existing SSH keys or Vault passwords.
+- Controller SSH shortcuts are regenerated locally from Inventory and are
+  not part of the five essential backup files. Never use the remote site
+  playbook to regenerate controller aliases.
+- Encrypted backup delivery must check Telegram's actual API success;
+  failed upload retains the encrypted local artifact and reports failure.
+- Isolated CI uses disposable dummy Vault, SSH and age keys only.
+  Production restore testing belongs to the operator in a disposable VM.
+
 ## SSH Key Contract
 
 - `ssh_security` reads the controller-side public-key path from `vault_ssh_public_key_path`.

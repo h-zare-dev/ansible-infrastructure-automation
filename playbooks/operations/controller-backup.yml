@@ -1,0 +1,10 @@
+---
+# Local controller secrets only: NEVER contact inventory hosts.
+- name: Encrypt and back up the Production Ansible controller
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  roles:
+    - controller_backup
