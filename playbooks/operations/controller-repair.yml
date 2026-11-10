@@ -12,8 +12,6 @@
         argv:
           - python3
           - "{{ playbook_dir }}/../../scripts/controller_manager.py"
-          - --vault-binary
-          - "{{ ansible_playbook_python | dirname }}/ansible-vault"
           - repair
       changed_when: false
       check_mode: false
@@ -21,7 +19,8 @@
     - name: Rebuild managed controller SSH aliases locally
       ansible.builtin.command:
         argv:
-          - "{{ ansible_playbook_python | dirname }}/ansible-playbook"
+          - /usr/bin/env
+          - ansible-playbook
           - -i
           - /root/ansible-project/inventory/hosts.ini
           - --vault-password-file
