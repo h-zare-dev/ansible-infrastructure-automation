@@ -42,7 +42,8 @@
           User=root
           WorkingDirectory=/root/ansible-project
           Environment=ANSIBLE_VAULT_PASSWORD_FILE=/root/.ansible/vault_pass
-          ExecStart=/opt/ansible-controller-venv/bin/ansible-playbook playbooks/operations/controller-backup.yml
+          Environment=PATH=/opt/ansible-controller-venv/bin:/usr/local/bin:/usr/bin:/bin
+          ExecStart=/usr/bin/env ansible-playbook playbooks/operations/controller-backup.yml
           NoNewPrivileges=true
           PrivateTmp=true
 
