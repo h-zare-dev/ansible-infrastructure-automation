@@ -56,6 +56,14 @@ fi
 "$venv/bin/python" -m pip install --disable-pip-version-check "ansible-core==2.21.5"
 "$venv/bin/ansible-galaxy" collection install -r "$repository_dir/requirements.yml"
 
+# Make the ordinary ansible-playbook command work in new login sessions.
+# Never overwrite an administrator-provided executable or existing link.
+for program in ansible-playbook ansible-vault ansible-galaxy ansible-inventory; do
+  if [[ ! -e "/usr/local/bin/$program" && ! -L "/usr/local/bin/$program" ]]; then
+    ln -s "$venv/bin/$program" "/usr/local/bin/$program"
+  fi
+done
+
 export PATH="$venv/bin:$PATH"
 export ANSIBLE_VAULT_PASSWORD_FILE="/root/.ansible/vault_pass"
 cd "$repository_dir"

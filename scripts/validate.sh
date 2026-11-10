@@ -59,6 +59,10 @@ echo "==> Testing controller install, encrypted backup and restore fixtures"
 python3 -m unittest discover -s tests/release -p 'test_controller_recovery.py' -v
 
 echo
+echo "==> Checking Ubuntu controller installer shell syntax"
+bash -n scripts/install-controller.sh
+
+echo
 echo "==> Checking automatic Bootstrap marker and discovery contracts"
 python3 -m unittest discover -s tests/release -p 'test_bootstrap_auto.py' -v
 

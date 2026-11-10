@@ -554,6 +554,8 @@ def wizard(paths, *, vault_binary):
             configure_delivery(paths)
     elif choice == "3":
         repair(paths, vault_binary=vault_binary)
+        if input("Rebuild local SSH shortcuts? [y/N]: ").strip().lower() == "y":
+            rebuild_shortcuts(paths)
     else:
         raise BackupError("Invalid installation mode")
 

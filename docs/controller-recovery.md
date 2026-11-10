@@ -33,7 +33,8 @@ An interactive menu offers:
    controller-only SSH shortcut aliases from Inventory.
 3. **Repair/Verify:** verifies essential files, Vault decryption and
    the matching SSH keypair, and creates the minimal SSH IdentityFile
-   setting if absent. Does NOT overwrite existing credentials.
+   setting if absent. It can also rebuild managed SSH aliases locally.
+   Does NOT overwrite existing credentials.
 
 Neither installation, repair nor restore runs site.yml, bootstrap.yml,
 system-update.yml or remote Ansible roles.
